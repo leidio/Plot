@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Mapbox marker fix */
+.mapboxgl-marker {
+  cursor: pointer;
+}
+
+.movement-marker,
+.idea-marker {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.movement-marker:hover,
+.idea-marker:hover {
+  transform: scale(1.2) !important;
+  z-index: 1000 !important;
+}
+
+/* Mapbox popup styling */
+.mapboxgl-popup-content {
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.mapboxgl-popup-close-button {
+  font-size: 20px;
+  padding: 4px 8px;
+}

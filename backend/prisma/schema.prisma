@@ -1,0 +1,216 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  @@map("app_users")
+
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  avatar        String?
+  bio           String?
+  location      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ownedMovements     Movement[]      @relation("MovementOwner")
+  movementMemberships MovementMember[]
+  createdIdeas       Idea[]          @relation("IdeaCreator")
+  supportedIdeas     IdeaSupport[]
+  donations          Donation[]
+  comments           Comment[]
+  notifications      Notification[]
+
+  @@index([email])
+}
+
+model Movement {
+
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  ownerId     String
+  coverImage  String?
+  tags        String[]
+  
+  latitude    Float
+  longitude   Float
+  city        String
+  state       String
+  country     String   @default("United States")
+  
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner       User            @relation("MovementOwner", fields: [ownerId], references: [id])
+  members     MovementMember[]
+  ideas       Idea[]
+  
+  @@index([ownerId])
+  @@index([city, state])
+  @@index([latitude, longitude])
+}
+
+model MovementMember {
+
+  id         String   @id @default(uuid())
+  userId     String
+  movementId String
+  role       String   @default("member")
+  joinedAt   DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movement   Movement @relation(fields: [movementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, movementId])
+  @@index([movementId])
+  @@index([userId])
+}
+
+model Idea {
+
+  id            String   @id @default(uuid())
+  title         String
+  description   String
+  creatorId     String
+  movementId    String
+  
+  latitude      Float
+  longitude     Float
+  address       String?
+  
+  fundingGoal   Int      @default(0)
+  fundingRaised Int      @default(0)
+  
+  status        String   @default("proposed")
+  
+  coverImage    String?
+  images        String[]
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  creator       User          @relation("IdeaCreator", fields: [creatorId], references: [id])
+  movement      Movement      @relation(fields: [movementId], references: [id], onDelete: Cascade)
+  supporters    IdeaSupport[]
+  tasks         Task[]
+  needs         Need[]
+  donations     Donation[]
+  comments      Comment[]
+
+  @@index([movementId])
+  @@index([creatorId])
+  @@index([latitude, longitude])
+  @@index([status])
+}
+
+model IdeaSupport {
+
+  id        String   @id @default(uuid())
+  userId    String
+  ideaId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idea      Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, ideaId])
+  @@index([ideaId])
+  @@index([userId])
+}
+
+model Task {
+
+  id          String   @id @default(uuid())
+  ideaId      String
+  title       String
+  description String?
+  completed   Boolean  @default(false)
+  completedBy String?
+  completedAt DateTime?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  idea        Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  @@index([ideaId])
+}
+
+model Need {
+
+  id          String   @id @default(uuid())
+  ideaId      String
+  title       String
+  description String?
+  quantity    Int      @default(1)
+  fulfilled   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  idea        Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  @@index([ideaId])
+}
+
+model Donation {
+
+  id              String   @id @default(uuid())
+  userId          String?
+  ideaId          String
+  amount          Int
+  platformFee     Int
+  netAmount       Int
+  stripePaymentId String   @unique
+  stripeStatus    String
+  isAnonymous     Boolean  @default(false)
+  message         String?
+  createdAt       DateTime @default(now())
+
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  idea            Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  @@index([ideaId])
+  @@index([userId])
+  @@index([stripePaymentId])
+}
+
+model Comment {
+
+  id        String   @id @default(uuid())
+  userId    String
+  ideaId    String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idea      Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  @@index([ideaId])
+  @@index([userId])
+}
+
+model Notification {
+
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+}
