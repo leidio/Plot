@@ -3,6 +3,8 @@ import mapboxgl from 'mapbox-gl';
 import { Search, Plus, Heart, Share2, DollarSign, Users, MapPin, Filter, Bell, User, X, Check, ChevronUp, ChevronDown, Lightbulb, Star, LogOut, Settings, Trash2, Mail, Lock, Moon, Sun, MessageSquare, Activity } from 'lucide-react';
 import { useTheme } from './hooks/useTheme';
 import { useWebSocket } from './hooks/useWebSocket';
+import { useMovementMarkers } from './hooks/useMovementMarkers';
+import { useIdeaMarkers } from './components/movement-details/useIdeaMarkers';
 import HoverPreviewModal from './components/HoverPreviewModal';
 import axios from 'axios';
 
@@ -227,152 +229,15 @@ const PlotApp = () => {
     };
   }, [viewMode, selectedMovement, currentUser, addIdeaMode]);
 
-  useEffect(() => {
-    if (!map.current) return;
-
-    // Don't manage markers if we're in movement-details view (MovementView handles its own markers)
-    if (viewMode === 'movement-details') {
-      return;
-    }
-
-    // Clear existing markers and hover state
-    markersRef.current.forEach(marker => {
-      // Clean up hover handlers
-      if (marker._updateTimeout) {
-        clearTimeout(marker._updateTimeout);
-      }
-      if (map.current && marker._moveHandler) {
-        map.current.off('move', marker._moveHandler);
-        map.current.off('zoom', marker._moveHandler);
-      }
-      marker._hoverUpdateFn = null;
-      marker._moveHandler = null;
-      marker._updateTimeout = null;
-      marker.remove();
-    });
-    markersRef.current = [];
-    const hoverResetId = requestAnimationFrame(() => {
-      setHoveredItem(null); // Clear hover state when markers are removed
-    });
-
-    if (viewMode === 'movements') {
-      // Movements are already filtered by API search, so use them directly
-      movements.forEach(movement => {
-        const el = document.createElement('div');
-        el.style.cssText = `
-          background-color: #16a34a;
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-weight: bold;
-          box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        `;
-        el.innerHTML = '●';
-        
-        el.onclick = (e) => {
-          e.stopPropagation();
-          setPreviewMovement(movement);
-        };
-
-        // Create marker first
-        const marker = new mapboxgl.Marker({
-          element: el,
-          anchor: 'center'
-        })
-          .setLngLat([movement.longitude, movement.latitude])
-          .addTo(map.current);
-        
-        // Store movement data on marker for cleanup
-        marker._movementId = movement.id;
-
-        // Hover handlers for preview modal - simplified approach
-        const handleMouseEnter = () => {
-          const updatePosition = () => {
-            if (!map.current) return;
-            const lngLat = [movement.longitude, movement.latitude];
-            const point = map.current.project(lngLat);
-            const mapContainerRect = map.current.getContainer().getBoundingClientRect();
-            
-            setHoveredItem({
-              type: 'movement',
-              item: movement,
-              position: { x: point.x + mapContainerRect.left, y: point.y + mapContainerRect.top }
-            });
-          };
-          
-          // Initial position update
-          updatePosition();
-          
-          // Store update function on marker for cleanup
-          marker._hoverUpdateFn = updatePosition;
-          
-          // Update on map events - use move/zoom for real-time updates but throttle
-          marker._updateTimeout = null;
-          marker._moveHandler = () => {
-            if (marker._updateTimeout) clearTimeout(marker._updateTimeout);
-            marker._updateTimeout = setTimeout(() => {
-              if (marker._hoverUpdateFn) {
-                marker._hoverUpdateFn();
-              }
-            }, 50); // Throttle to every 50ms
-          };
-          
-          map.current.on('move', marker._moveHandler);
-          map.current.on('zoom', marker._moveHandler);
-        };
-
-        const handleMouseLeave = () => {
-          // Clear any pending timeouts
-          if (marker._updateTimeout) {
-            clearTimeout(marker._updateTimeout);
-            marker._updateTimeout = null;
-          }
-          
-          // Remove map event listeners
-          if (map.current && marker._moveHandler) {
-            map.current.off('move', marker._moveHandler);
-            map.current.off('zoom', marker._moveHandler);
-            marker._moveHandler = null;
-          }
-          marker._hoverUpdateFn = null;
-          
-          // Clear hover state immediately
-          setHoveredItem(null);
-        };
-
-        el.addEventListener('mouseenter', handleMouseEnter);
-        el.addEventListener('mouseleave', handleMouseLeave);
-
-        markersRef.current.push(marker);
-      });
-
-      // Fit map to show all search results if there are movements
-      if (movements.length > 0 && map.current) {
-        const bounds = new mapboxgl.LngLatBounds();
-        movements.forEach(movement => {
-          bounds.extend([movement.longitude, movement.latitude]);
-        });
-        // Account for header height (approximately 60-70px) and search box if visible (approximately 50-60px)
-        const topPadding = showSearch ? 130 : 80;
-        map.current.fitBounds(bounds, { 
-          padding: {
-            top: topPadding,
-            bottom: 80,
-            left: 80,
-            right: 80
-          },
-          maxZoom: 12 
-        });
-      }
-    }
-    // Note: Movement-details markers are now handled in MovementView component
-    return () => cancelAnimationFrame(hoverResetId);
-  }, [viewMode, movements, searchQuery, ideas, selectedMovement, showSearch, setHoveredItem]);
+  useMovementMarkers({
+    mapRef: map,
+    markersRef,
+    viewMode,
+    movements,
+    showSearch,
+    setHoveredItem,
+    setPreviewMovement
+  });
 
   // Global search with debouncing
   useEffect(() => {
@@ -997,155 +862,15 @@ const MovementView = ({ movement, ideas, currentUser, map, markersRef, socket, i
     }
   }, [headerCollapsed]);
 
-  // Setup map markers for ideas - simplified to match movement markers exactly
-  useEffect(() => {
-    if (!map.current || !movement) return;
-
-    // Wait for map to be fully loaded
-    if (!map.current.loaded()) {
-      return;
-    }
-
-    // Clear existing markers (but don't clear hover state - let it clear naturally)
-    markersRef.current.forEach(marker => {
-      if (marker._updateTimeout) {
-        clearTimeout(marker._updateTimeout);
-      }
-      if (map.current && marker._moveHandler) {
-        map.current.off('move', marker._moveHandler);
-        map.current.off('zoom', marker._moveHandler);
-      }
-      marker._hoverUpdateFn = null;
-      marker._moveHandler = null;
-      marker._updateTimeout = null;
-      marker.remove();
-    });
-    markersRef.current = [];
-    // Don't clear hover state here - it will clear naturally when mouse leaves
-
-    if (ideas && ideas.length > 0) {
-      ideas.forEach(idea => {
-        // Create idea marker (circle with emoji)
-        const el = document.createElement('div');
-        el.style.cssText = `
-          background-color: #2563eb;
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 18px;
-          box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        `;
-        el.innerHTML = '💡';
-        
-        el.onclick = (e) => {
-          e.stopPropagation();
-          onIdeaSelect(idea);
-        };
-
-        // Create marker first
-        const marker = new mapboxgl.Marker({
-          element: el,
-          anchor: 'center'
-        })
-          .setLngLat([idea.longitude, idea.latitude])
-          .addTo(map.current);
-        
-        // Store idea data on marker for cleanup
-        marker._ideaId = idea.id;
-
-        // Hover handlers for preview modal - exact copy of movement logic
-        const ideaWithMovement = {
-          ...idea,
-          movement: {
-            name: movement.name,
-            city: movement.city,
-            state: movement.state
-          }
-        };
-        
-        const handleMouseEnter = () => {
-          const updatePosition = () => {
-            if (!map.current) return;
-            const lngLat = [idea.longitude, idea.latitude];
-            const point = map.current.project(lngLat);
-            const mapContainerRect = map.current.getContainer().getBoundingClientRect();
-            
-            setHoveredItem({
-              type: 'idea',
-              item: ideaWithMovement,
-              position: { x: point.x + mapContainerRect.left, y: point.y + mapContainerRect.top }
-            });
-          };
-          
-          // Initial position update
-          updatePosition();
-          
-          // Store update function on marker for cleanup
-          marker._hoverUpdateFn = updatePosition;
-          
-          // Update on map events - use move/zoom for real-time updates but throttle
-          marker._updateTimeout = null;
-          marker._moveHandler = () => {
-            if (marker._updateTimeout) clearTimeout(marker._updateTimeout);
-            marker._updateTimeout = setTimeout(() => {
-              if (marker._hoverUpdateFn) {
-                marker._hoverUpdateFn();
-              }
-            }, 50); // Throttle to every 50ms
-          };
-          
-          map.current.on('move', marker._moveHandler);
-          map.current.on('zoom', marker._moveHandler);
-        };
-
-        const handleMouseLeave = () => {
-          // Clear any pending timeouts
-          if (marker._updateTimeout) {
-            clearTimeout(marker._updateTimeout);
-            marker._updateTimeout = null;
-          }
-          
-          // Remove map event listeners
-          if (map.current && marker._moveHandler) {
-            map.current.off('move', marker._moveHandler);
-            map.current.off('zoom', marker._moveHandler);
-            marker._moveHandler = null;
-          }
-          marker._hoverUpdateFn = null;
-          
-          // Clear hover state immediately
-          setHoveredItem(null);
-        };
-
-        el.addEventListener('mouseenter', handleMouseEnter);
-        el.addEventListener('mouseleave', handleMouseLeave);
-
-        markersRef.current.push(marker);
-      });
-
-      // Fit map to show all ideas
-      if (ideas.length > 0 && map.current) {
-        const bounds = new mapboxgl.LngLatBounds();
-        ideas.forEach(idea => {
-          bounds.extend([idea.longitude, idea.latitude]);
-        });
-        const topPadding = headerCollapsed ? 100 : 370;
-        const bufferSize = 150;
-        map.current.fitBounds(bounds, { 
-          padding: {
-            top: topPadding + bufferSize,
-            bottom: bufferSize,
-            left: bufferSize,
-            right: bufferSize
-          }
-        });
-      }
-    }
-  }, [ideas, movement, map, markersRef, headerCollapsed, onIdeaSelect, setHoveredItem]);
+  useIdeaMarkers({
+    mapRef: map,
+    markersRef,
+    movement,
+    ideas,
+    headerCollapsed,
+    onIdeaSelect,
+    setHoveredItem
+  });
 
   if (!movement) return null;
 
