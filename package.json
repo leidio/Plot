@@ -1,0 +1,14 @@
+{
+  "name": "plot",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "lint": "npm run lint --workspace frontend",
+    "test": "npm run test --workspace frontend --if-present && npm run test --workspace backend --if-present"
+  }
+}
+

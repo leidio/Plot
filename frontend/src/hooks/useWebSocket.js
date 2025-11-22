@@ -7,6 +7,7 @@ export const useWebSocket = (token, enabled = true) => {
   const socketRef = useRef(null);
   const [isConnected, setIsConnected] = useState(false);
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const [socketInstance, setSocketInstance] = useState(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -24,6 +25,7 @@ export const useWebSocket = (token, enabled = true) => {
     });
 
     const socket = socketRef.current;
+    setSocketInstance(socket);
 
     socket.on('connect', () => {
       console.log('WebSocket connected');
@@ -45,11 +47,12 @@ export const useWebSocket = (token, enabled = true) => {
       if (socket) {
         socket.disconnect();
       }
+      setSocketInstance(null);
     };
   }, [enabled, token]);
 
   return {
-    socket: socketRef.current,
+    socket: socketInstance,
     isConnected,
     reconnectAttempts
   };

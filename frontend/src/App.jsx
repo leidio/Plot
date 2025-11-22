@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { Search, Plus, Heart, Share2, DollarSign, Users, MapPin, Filter, Bell, User, X, Check, ChevronUp, ChevronDown, Lightbulb, Star, LogOut, Settings, Trash2, Mail, Lock, Moon, Sun, MessageSquare, Activity } from 'lucide-react';
 import { useTheme } from './hooks/useTheme';
 import { useWebSocket } from './hooks/useWebSocket';
+import HoverPreviewModal from './components/HoverPreviewModal';
 import axios from 'axios';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
@@ -60,8 +61,25 @@ const PlotApp = () => {
   const [wsToken, setWsToken] = useState(null);
   const { socket, isConnected } = useWebSocket(wsToken, true);
 
+  const loadMovements = useCallback(async (city = null, state = null) => {
+    try {
+      const params = new URLSearchParams();
+      if (city) params.append('city', city);
+      if (state) params.append('state', state);
+      const queryString = params.toString();
+      const url = `/movements${queryString ? `?${queryString}` : ''}`;
+      const response = await apiCall('get', url);
+      setMovements(response.data.movements || []);
+    } catch (error) {
+      console.error('Error loading movements:', error);
+      setMovements([]);
+    }
+  }, []);
+
   useEffect(() => {
-    loadMovements();
+    const rafId = requestAnimationFrame(() => {
+      loadMovements();
+    });
     // Check if user is already logged in (via cookie)
     // If they have old localStorage token but no cookie, they need to log in again
     const oldToken = localStorage.getItem('authToken');
@@ -84,7 +102,9 @@ const PlotApp = () => {
         // User will need to log in again
         setWsToken(null);
       });
-  }, []);
+
+    return () => cancelAnimationFrame(rafId);
+  }, [loadMovements]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -231,7 +251,9 @@ const PlotApp = () => {
       marker.remove();
     });
     markersRef.current = [];
-    setHoveredItem(null); // Clear hover state when markers are removed
+    const hoverResetId = requestAnimationFrame(() => {
+      setHoveredItem(null); // Clear hover state when markers are removed
+    });
 
     if (viewMode === 'movements') {
       // Movements are already filtered by API search, so use them directly
@@ -349,30 +371,12 @@ const PlotApp = () => {
       }
     }
     // Note: Movement-details markers are now handled in MovementView component
+    return () => cancelAnimationFrame(hoverResetId);
   }, [viewMode, movements, searchQuery, ideas, selectedMovement, showSearch, setHoveredItem]);
-
-  const loadMovements = async (city = null, state = null) => {
-    try {
-      const params = new URLSearchParams();
-      if (city) params.append('city', city);
-      if (state) params.append('state', state);
-      const queryString = params.toString();
-      const url = `/movements${queryString ? `?${queryString}` : ''}`;
-      const response = await apiCall('get', url);
-      setMovements(response.data.movements || []);
-    } catch (error) {
-      console.error('Error loading movements:', error);
-      // Fallback to empty array on error
-      setMovements([]);
-    }
-  };
-
-  const loadMovementsWithLocation = async (city, state) => {
-    await loadMovements(city, state);
-  };
 
   // Global search with debouncing
   useEffect(() => {
+    let refreshRafId = null;
     // Clear previous timer
     if (searchDebounceTimerRef.current) {
       clearTimeout(searchDebounceTimerRef.current);
@@ -380,7 +384,9 @@ const PlotApp = () => {
 
     // If search query is empty, load all movements and clear search results
     if (!searchQuery.trim()) {
-      loadMovements();
+      refreshRafId = requestAnimationFrame(() => {
+        loadMovements();
+      });
       setSearchResults({ movements: [], ideas: [] });
       setIsSearching(false);
       return;
@@ -413,8 +419,11 @@ const PlotApp = () => {
       if (searchDebounceTimerRef.current) {
         clearTimeout(searchDebounceTimerRef.current);
       }
+      if (refreshRafId) {
+        cancelAnimationFrame(refreshRafId);
+      }
     };
-  }, [searchQuery]);
+  }, [searchQuery, loadMovements]);
 
   const loadIdeas = async (movementId) => {
     try {
@@ -471,7 +480,7 @@ const PlotApp = () => {
     }
   };
 
-  const handleIdeaSelect = async (idea) => {
+  const handleIdeaSelect = useCallback(async (idea) => {
     try {
       // Fetch full idea details from API
       const response = await apiCall('get', `/ideas/${idea.id}`);
@@ -489,7 +498,7 @@ const PlotApp = () => {
       // Fallback to basic idea data
       setSelectedIdea({ ...idea, isSupporting: false });
     }
-  };
+  }, []);
 
   const handleSupportIdea = async (ideaId) => {
     if (!currentUser) {
@@ -703,7 +712,6 @@ const PlotApp = () => {
               setAddIdeaMode(true);
             }}
             addIdeaMode={addIdeaMode}
-            setAddIdeaMode={setAddIdeaMode}
             onLocationClick={(city, state) => {
               // Navigate back to main page and search by location
               setViewMode('movements');
@@ -723,7 +731,7 @@ const PlotApp = () => {
               setShowSearch(true); // Show search box with the tag query
               // The search effect will automatically trigger and search for movements
             }}
-            onFollowChange={async (movementId, isFollowing) => {
+            onFollowChange={async (movementId) => {
               // Reload movement to get updated member count
               try {
                 const response = await apiCall('get', `/movements/${movementId}`);
@@ -768,7 +776,6 @@ const PlotApp = () => {
       {previewMovement && (
         <MovementPreviewModal
           movement={previewMovement}
-          currentUser={currentUser}
           onClose={() => setPreviewMovement(null)}
           onViewFullPage={async () => {
             setPreviewMovement(null);
@@ -792,7 +799,6 @@ const PlotApp = () => {
             }
           }}
           onSupport={handleSupportIdea}
-          map={map}
           socket={socket}
           isConnected={isConnected}
         />
@@ -851,7 +857,7 @@ const PlotApp = () => {
 };
 
 // MovementView component - full page view with collapsible header
-const MovementView = ({ movement, ideas, currentUser, map, markersRef, socket, isConnected, setHoveredItem, onBack, onIdeaSelect, onCreateIdea, addIdeaMode, setAddIdeaMode, onLocationClick, onFollowChange, onTagClick }) => {
+const MovementView = ({ movement, ideas, currentUser, map, markersRef, socket, isConnected, setHoveredItem, onBack, onIdeaSelect, onCreateIdea, addIdeaMode, onLocationClick, onFollowChange, onTagClick }) => {
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [isLoadingFollow, setIsLoadingFollow] = useState(false);
@@ -1139,7 +1145,7 @@ const MovementView = ({ movement, ideas, currentUser, map, markersRef, socket, i
         });
       }
     }
-  }, [ideas, movement, map, markersRef]);
+  }, [ideas, movement, map, markersRef, headerCollapsed, onIdeaSelect, setHoveredItem]);
 
   if (!movement) return null;
 
@@ -1612,7 +1618,7 @@ const MovementDetails = ({ movement, ideas, currentUser, addIdeaMode, onIdeaSele
   );
 };
 
-const IdeaModal = ({ idea, onClose, currentUser, onSupport, map, socket, isConnected }) => {
+const IdeaModal = ({ idea, onClose, currentUser, onSupport, socket, isConnected }) => {
   const ideaMapContainer = useRef(null);
   const ideaMap = useRef(null);
   const ideaMarkerRef = useRef(null);
@@ -1962,7 +1968,7 @@ const IdeaModal = ({ idea, onClose, currentUser, onSupport, map, socket, isConne
 };
 
 // MovementPreviewModal component
-const MovementPreviewModal = ({ movement, currentUser, onClose, onViewFullPage }) => {
+const MovementPreviewModal = ({ movement, onClose, onViewFullPage }) => {
   if (!movement) {
     return null;
   }
@@ -2049,104 +2055,6 @@ const MovementPreviewModal = ({ movement, currentUser, onClose, onViewFullPage }
       </div>
     </div>
   );
-};
-
-// HoverPreviewModal component - shows preview on hover
-const HoverPreviewModal = ({ hoveredItem }) => {
-  if (!hoveredItem || !hoveredItem.position) {
-    return null;
-  }
-
-  const { type, item, position } = hoveredItem;
-
-  // Ensure position values are valid numbers
-  if (typeof position.x !== 'number' || typeof position.y !== 'number' || isNaN(position.x) || isNaN(position.y)) {
-    return null;
-  }
-
-  // Position the modal near the marker, offset to avoid overlap
-  // Position it to the right and slightly above the marker
-  const offsetX = 25;
-  const offsetY = -10;
-  const style = {
-    position: 'fixed',
-    left: `${Math.max(0, position.x + offsetX)}px`, // Prevent negative values
-    top: `${Math.max(0, position.y + offsetY)}px`, // Prevent negative values
-    zIndex: 10000, // Higher z-index to ensure it's on top
-    pointerEvents: 'none', // Allow clicks to pass through
-    transform: 'translateY(-100%)', // Position above the marker
-    maxWidth: '320px',
-    minWidth: '240px',
-  };
-
-  if (type === 'movement') {
-    const name = item.name || 'Untitled Movement';
-    const description = item.description || 'No description';
-    const truncatedDescription = description.length > 100 ? description.substring(0, 100) + '...' : description;
-    
-    return (
-      <div style={style} className="bg-white rounded-lg shadow-lg border border-gray-200 p-3 max-w-xs">
-        <h3 className="font-bold text-gray-900 text-sm mb-1 truncate">{name}</h3>
-        <p className="text-xs text-gray-600 mb-2" style={{
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-          maxHeight: '2.4em'
-        }}>{truncatedDescription}</p>
-        <div className="flex items-center gap-3 text-xs text-gray-500">
-          <div className="flex items-center gap-1">
-            <Users className="w-3 h-3" />
-            <span>{item._count?.members || 0} members</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <MapPin className="w-3 h-3" />
-            <span>{item.city}, {item.state}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (type === 'idea') {
-    const movementName = item.movement?.name || 'Unknown Movement';
-    const title = item.title || 'Untitled Idea';
-    const description = item.description || 'No description';
-    const truncatedDescription = description.length > 100 ? description.substring(0, 100) + '...' : description;
-    
-    return (
-      <div style={style} className="bg-white rounded-lg shadow-lg border border-gray-200 p-3 max-w-xs">
-        <h3 className="font-bold text-gray-900 text-sm mb-1 truncate">{title}</h3>
-        <p className="text-xs text-gray-600 mb-2" style={{
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-          maxHeight: '2.4em'
-        }}>{truncatedDescription}</p>
-        <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
-          <div className="flex items-center gap-1">
-            <Lightbulb className="w-3 h-3" />
-            <span className="truncate">{movementName}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 text-xs text-gray-500">
-          <div className="flex items-center gap-1">
-            <Heart className="w-3 h-3" />
-            <span>{item._count?.supporters || 0} supporters</span>
-          </div>
-          {item.fundingRaised > 0 && (
-            <div className="flex items-center gap-1">
-              <DollarSign className="w-3 h-3" />
-              <span>${((item.fundingRaised || 0) / 100).toLocaleString()}</span>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return null;
 };
 
 const AuthModal = ({ mode, onClose, onSuccess, onSwitchMode }) => {
@@ -2724,16 +2632,7 @@ const ProfileModal = ({ currentUser, onClose, onUserUpdate, onSignOut, onMovemen
   const [loadingData, setLoadingData] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  useEffect(() => {
-    if (activeTab === 'movements' || activeTab === 'ideas') {
-      loadUserData();
-    }
-    // Clear error/success messages when switching tabs
-    setError('');
-    setSuccess('');
-  }, [activeTab]);
-
-  const loadUserData = async () => {
+  const loadUserData = useCallback(async () => {
     setLoadingData(true);
     try {
       if (activeTab === 'movements') {
@@ -2748,7 +2647,16 @@ const ProfileModal = ({ currentUser, onClose, onUserUpdate, onSignOut, onMovemen
     } finally {
       setLoadingData(false);
     }
-  };
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'movements' || activeTab === 'ideas') {
+      loadUserData();
+    }
+    // Clear error/success messages when switching tabs
+    setError('');
+    setSuccess('');
+  }, [activeTab, loadUserData]);
 
   const handleUpdateEmail = async (e) => {
     e.preventDefault();
