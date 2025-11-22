@@ -54,6 +54,7 @@ const PlotApp = () => {
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const profileDropdownRef = useRef(null);
+  const [hoveredItem, setHoveredItem] = useState(null); // { type: 'movement' | 'idea', item: {}, position: { x, y } }
   
   // WebSocket setup - get token from cookies via API call
   const [wsToken, setWsToken] = useState(null);
@@ -214,9 +215,23 @@ const PlotApp = () => {
       return;
     }
 
-    // Clear existing markers
-    markersRef.current.forEach(marker => marker.remove());
+    // Clear existing markers and hover state
+    markersRef.current.forEach(marker => {
+      // Clean up hover handlers
+      if (marker._updateTimeout) {
+        clearTimeout(marker._updateTimeout);
+      }
+      if (map.current && marker._moveHandler) {
+        map.current.off('move', marker._moveHandler);
+        map.current.off('zoom', marker._moveHandler);
+      }
+      marker._hoverUpdateFn = null;
+      marker._moveHandler = null;
+      marker._updateTimeout = null;
+      marker.remove();
+    });
     markersRef.current = [];
+    setHoveredItem(null); // Clear hover state when markers are removed
 
     if (viewMode === 'movements') {
       // Movements are already filtered by API search, so use them directly
@@ -242,16 +257,74 @@ const PlotApp = () => {
           setPreviewMovement(movement);
         };
 
+        // Create marker first
         const marker = new mapboxgl.Marker({
           element: el,
           anchor: 'center'
         })
           .setLngLat([movement.longitude, movement.latitude])
-          .setPopup(
-            new mapboxgl.Popup({ offset: 25 })
-              .setHTML(`<h3 style="font-weight: bold; margin-bottom: 4px;">${movement.name}</h3><p style="font-size: 12px;">${movement._count.members} members</p>`)
-          )
           .addTo(map.current);
+        
+        // Store movement data on marker for cleanup
+        marker._movementId = movement.id;
+
+        // Hover handlers for preview modal - simplified approach
+        const handleMouseEnter = () => {
+          const updatePosition = () => {
+            if (!map.current) return;
+            const lngLat = [movement.longitude, movement.latitude];
+            const point = map.current.project(lngLat);
+            const mapContainerRect = map.current.getContainer().getBoundingClientRect();
+            
+            setHoveredItem({
+              type: 'movement',
+              item: movement,
+              position: { x: point.x + mapContainerRect.left, y: point.y + mapContainerRect.top }
+            });
+          };
+          
+          // Initial position update
+          updatePosition();
+          
+          // Store update function on marker for cleanup
+          marker._hoverUpdateFn = updatePosition;
+          
+          // Update on map events - use move/zoom for real-time updates but throttle
+          marker._updateTimeout = null;
+          marker._moveHandler = () => {
+            if (marker._updateTimeout) clearTimeout(marker._updateTimeout);
+            marker._updateTimeout = setTimeout(() => {
+              if (marker._hoverUpdateFn) {
+                marker._hoverUpdateFn();
+              }
+            }, 50); // Throttle to every 50ms
+          };
+          
+          map.current.on('move', marker._moveHandler);
+          map.current.on('zoom', marker._moveHandler);
+        };
+
+        const handleMouseLeave = () => {
+          // Clear any pending timeouts
+          if (marker._updateTimeout) {
+            clearTimeout(marker._updateTimeout);
+            marker._updateTimeout = null;
+          }
+          
+          // Remove map event listeners
+          if (map.current && marker._moveHandler) {
+            map.current.off('move', marker._moveHandler);
+            map.current.off('zoom', marker._moveHandler);
+            marker._moveHandler = null;
+          }
+          marker._hoverUpdateFn = null;
+          
+          // Clear hover state immediately
+          setHoveredItem(null);
+        };
+
+        el.addEventListener('mouseenter', handleMouseEnter);
+        el.addEventListener('mouseleave', handleMouseLeave);
 
         markersRef.current.push(marker);
       });
@@ -276,7 +349,7 @@ const PlotApp = () => {
       }
     }
     // Note: Movement-details markers are now handled in MovementView component
-  }, [viewMode, movements, searchQuery, ideas, selectedMovement, showSearch]);
+  }, [viewMode, movements, searchQuery, ideas, selectedMovement, showSearch, setHoveredItem]);
 
   const loadMovements = async (city = null, state = null) => {
     try {
@@ -614,6 +687,7 @@ const PlotApp = () => {
             markersRef={markersRef}
             socket={socket}
             isConnected={isConnected}
+            setHoveredItem={setHoveredItem}
             onBack={() => {
               setViewMode('movements');
               setSelectedMovement(null);
@@ -769,12 +843,15 @@ const PlotApp = () => {
           onIdeaSelect={handleIdeaSelect}
         />
       )}
+
+      {/* Hover Preview Modal */}
+      <HoverPreviewModal hoveredItem={hoveredItem} />
     </div>
   );
 };
 
 // MovementView component - full page view with collapsible header
-const MovementView = ({ movement, ideas, currentUser, map, markersRef, socket, isConnected, onBack, onIdeaSelect, onCreateIdea, addIdeaMode, setAddIdeaMode, onLocationClick, onFollowChange, onTagClick }) => {
+const MovementView = ({ movement, ideas, currentUser, map, markersRef, socket, isConnected, setHoveredItem, onBack, onIdeaSelect, onCreateIdea, addIdeaMode, setAddIdeaMode, onLocationClick, onFollowChange, onTagClick }) => {
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [isLoadingFollow, setIsLoadingFollow] = useState(false);
@@ -914,139 +991,155 @@ const MovementView = ({ movement, ideas, currentUser, map, markersRef, socket, i
     }
   }, [headerCollapsed]);
 
-  // Setup map markers for ideas
+  // Setup map markers for ideas - simplified to match movement markers exactly
   useEffect(() => {
-    if (!map.current || !movement) {
-      console.log('MovementView: Map or movement not ready', { mapReady: !!map.current, movementReady: !!movement });
-      return;
-    }
+    if (!map.current || !movement) return;
 
     // Wait for map to be fully loaded
     if (!map.current.loaded()) {
-      console.log('MovementView: Map not loaded yet, waiting...');
-      const waitForLoad = () => {
-        if (map.current && map.current.loaded()) {
-          setupMarkers();
-        } else {
-          setTimeout(waitForLoad, 100);
-        }
-      };
-      waitForLoad();
       return;
     }
 
-    // Ensure map is resized for the new view
-    setTimeout(() => {
-      if (map.current) {
-        map.current.resize();
+    // Clear existing markers (but don't clear hover state - let it clear naturally)
+    markersRef.current.forEach(marker => {
+      if (marker._updateTimeout) {
+        clearTimeout(marker._updateTimeout);
       }
-    }, 100);
+      if (map.current && marker._moveHandler) {
+        map.current.off('move', marker._moveHandler);
+        map.current.off('zoom', marker._moveHandler);
+      }
+      marker._hoverUpdateFn = null;
+      marker._moveHandler = null;
+      marker._updateTimeout = null;
+      marker.remove();
+    });
+    markersRef.current = [];
+    // Don't clear hover state here - it will clear naturally when mouse leaves
 
-    setupMarkers();
+    if (ideas && ideas.length > 0) {
+      ideas.forEach(idea => {
+        // Create idea marker (circle with emoji)
+        const el = document.createElement('div');
+        el.style.cssText = `
+          background-color: #2563eb;
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 18px;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        `;
+        el.innerHTML = '💡';
+        
+        el.onclick = (e) => {
+          e.stopPropagation();
+          onIdeaSelect(idea);
+        };
 
-    function setupMarkers() {
-      console.log('MovementView: Setting up markers', { ideasCount: ideas?.length, movementName: movement.name });
-      
-      // Clear existing markers
-      markersRef.current.forEach(marker => marker.remove());
-      markersRef.current = [];
+        // Create marker first
+        const marker = new mapboxgl.Marker({
+          element: el,
+          anchor: 'center'
+        })
+          .setLngLat([idea.longitude, idea.latitude])
+          .addTo(map.current);
+        
+        // Store idea data on marker for cleanup
+        marker._ideaId = idea.id;
 
-      if (ideas && ideas.length > 0) {
-        ideas.forEach(idea => {
-          // Create idea marker (circle with emoji)
-          const el = document.createElement('div');
-          el.style.cssText = `
-            background-color: #2563eb;
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-          `;
-          el.innerHTML = '💡';
-          
-          el.onclick = (e) => {
-            e.stopPropagation();
-            onIdeaSelect(idea);
+        // Hover handlers for preview modal - exact copy of movement logic
+        const ideaWithMovement = {
+          ...idea,
+          movement: {
+            name: movement.name,
+            city: movement.city,
+            state: movement.state
+          }
+        };
+        
+        const handleMouseEnter = () => {
+          const updatePosition = () => {
+            if (!map.current) return;
+            const lngLat = [idea.longitude, idea.latitude];
+            const point = map.current.project(lngLat);
+            const mapContainerRect = map.current.getContainer().getBoundingClientRect();
+            
+            setHoveredItem({
+              type: 'idea',
+              item: ideaWithMovement,
+              position: { x: point.x + mapContainerRect.left, y: point.y + mapContainerRect.top }
+            });
           };
+          
+          // Initial position update
+          updatePosition();
+          
+          // Store update function on marker for cleanup
+          marker._hoverUpdateFn = updatePosition;
+          
+          // Update on map events - use move/zoom for real-time updates but throttle
+          marker._updateTimeout = null;
+          marker._moveHandler = () => {
+            if (marker._updateTimeout) clearTimeout(marker._updateTimeout);
+            marker._updateTimeout = setTimeout(() => {
+              if (marker._hoverUpdateFn) {
+                marker._hoverUpdateFn();
+              }
+            }, 50); // Throttle to every 50ms
+          };
+          
+          map.current.on('move', marker._moveHandler);
+          map.current.on('zoom', marker._moveHandler);
+        };
 
-          const marker = new mapboxgl.Marker({
-            element: el,
-            anchor: 'center'
-          })
-            .setLngLat([idea.longitude, idea.latitude])
-            .setPopup(
-              new mapboxgl.Popup({ 
-                offset: 25,
-                className: 'idea-popup'
-              })
-                .setHTML(`
-                  <div style="min-width: 200px;">
-                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-                      <h3 style="font-weight: bold; font-size: 16px; margin: 0; flex: 1;">${idea.title}</h3>
-                      <button onclick="event.stopPropagation();" style="background: none; border: none; cursor: pointer; padding: 0; margin-left: 8px;">✕</button>
-                    </div>
-                    <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
-                      <span style="background: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-size: 12px; display: flex; align-items: center; gap: 4px;">
-                        🌳 ${movement.name}
-                      </span>
-                      <span style="background: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-size: 12px; display: flex; align-items: center; gap: 4px;">
-                        📍 ${movement.city}
-                      </span>
-                    </div>
-                    <p style="font-size: 14px; color: #4b5563; margin: 0 0 12px 0; line-height: 1.4;">
-                      ${idea.description?.substring(0, 100)}${idea.description?.length > 100 ? '...' : ''}
-                    </p>
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 1px solid #e5e7eb;">
-                      <a href="#" onclick="event.stopPropagation();" style="color: #3b82f6; text-decoration: none; font-size: 14px;">View more</a>
-                      <div style="display: flex; gap: 12px;">
-                        <button onclick="event.stopPropagation();" style="background: none; border: none; cursor: pointer; padding: 4px;">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
-                        </button>
-                        <button onclick="event.stopPropagation();" style="background: none; border: none; cursor: pointer; padding: 4px;">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                `)
-            )
-            .addTo(map.current);
+        const handleMouseLeave = () => {
+          // Clear any pending timeouts
+          if (marker._updateTimeout) {
+            clearTimeout(marker._updateTimeout);
+            marker._updateTimeout = null;
+          }
+          
+          // Remove map event listeners
+          if (map.current && marker._moveHandler) {
+            map.current.off('move', marker._moveHandler);
+            map.current.off('zoom', marker._moveHandler);
+            marker._moveHandler = null;
+          }
+          marker._hoverUpdateFn = null;
+          
+          // Clear hover state immediately
+          setHoveredItem(null);
+        };
 
-          markersRef.current.push(marker);
+        el.addEventListener('mouseenter', handleMouseEnter);
+        el.addEventListener('mouseleave', handleMouseLeave);
+
+        markersRef.current.push(marker);
+      });
+
+      // Fit map to show all ideas
+      if (ideas.length > 0 && map.current) {
+        const bounds = new mapboxgl.LngLatBounds();
+        ideas.forEach(idea => {
+          bounds.extend([idea.longitude, idea.latitude]);
         });
-
-        console.log('MovementView: Added', markersRef.current.length, 'markers to map');
-
-        // Fit map to show all ideas
-        if (ideas.length > 0) {
-          const bounds = new mapboxgl.LngLatBounds();
-          ideas.forEach(idea => {
-            bounds.extend([idea.longitude, idea.latitude]);
-          });
-          // Account for collapsible header height (approximately 80px when collapsed, 350px when expanded)
-          // Use a conservative estimate to ensure markers are visible
-          // Add extra buffer around markers so they don't butt up against the edges
-          const topPadding = headerCollapsed ? 100 : 370;
-          const bufferSize = 150; // Increased buffer for equal spacing
-          map.current.fitBounds(bounds, { 
-            padding: {
-              top: topPadding + bufferSize,  // Extra buffer on top
-              bottom: bufferSize,            // Increased buffer on bottom
-              left: bufferSize,              // Increased buffer on left
-              right: bufferSize              // Increased buffer on right
-            }
-          });
-        }
-      } else {
-        console.log('MovementView: No ideas to display');
+        const topPadding = headerCollapsed ? 100 : 370;
+        const bufferSize = 150;
+        map.current.fitBounds(bounds, { 
+          padding: {
+            top: topPadding + bufferSize,
+            bottom: bufferSize,
+            left: bufferSize,
+            right: bufferSize
+          }
+        });
       }
     }
-  }, [ideas, movement, map, markersRef, onIdeaSelect, headerCollapsed]);
+  }, [ideas, movement, map, markersRef]);
 
   if (!movement) return null;
 
@@ -1956,6 +2049,104 @@ const MovementPreviewModal = ({ movement, currentUser, onClose, onViewFullPage }
       </div>
     </div>
   );
+};
+
+// HoverPreviewModal component - shows preview on hover
+const HoverPreviewModal = ({ hoveredItem }) => {
+  if (!hoveredItem || !hoveredItem.position) {
+    return null;
+  }
+
+  const { type, item, position } = hoveredItem;
+
+  // Ensure position values are valid numbers
+  if (typeof position.x !== 'number' || typeof position.y !== 'number' || isNaN(position.x) || isNaN(position.y)) {
+    return null;
+  }
+
+  // Position the modal near the marker, offset to avoid overlap
+  // Position it to the right and slightly above the marker
+  const offsetX = 25;
+  const offsetY = -10;
+  const style = {
+    position: 'fixed',
+    left: `${Math.max(0, position.x + offsetX)}px`, // Prevent negative values
+    top: `${Math.max(0, position.y + offsetY)}px`, // Prevent negative values
+    zIndex: 10000, // Higher z-index to ensure it's on top
+    pointerEvents: 'none', // Allow clicks to pass through
+    transform: 'translateY(-100%)', // Position above the marker
+    maxWidth: '320px',
+    minWidth: '240px',
+  };
+
+  if (type === 'movement') {
+    const name = item.name || 'Untitled Movement';
+    const description = item.description || 'No description';
+    const truncatedDescription = description.length > 100 ? description.substring(0, 100) + '...' : description;
+    
+    return (
+      <div style={style} className="bg-white rounded-lg shadow-lg border border-gray-200 p-3 max-w-xs">
+        <h3 className="font-bold text-gray-900 text-sm mb-1 truncate">{name}</h3>
+        <p className="text-xs text-gray-600 mb-2" style={{
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+          maxHeight: '2.4em'
+        }}>{truncatedDescription}</p>
+        <div className="flex items-center gap-3 text-xs text-gray-500">
+          <div className="flex items-center gap-1">
+            <Users className="w-3 h-3" />
+            <span>{item._count?.members || 0} members</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <MapPin className="w-3 h-3" />
+            <span>{item.city}, {item.state}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (type === 'idea') {
+    const movementName = item.movement?.name || 'Unknown Movement';
+    const title = item.title || 'Untitled Idea';
+    const description = item.description || 'No description';
+    const truncatedDescription = description.length > 100 ? description.substring(0, 100) + '...' : description;
+    
+    return (
+      <div style={style} className="bg-white rounded-lg shadow-lg border border-gray-200 p-3 max-w-xs">
+        <h3 className="font-bold text-gray-900 text-sm mb-1 truncate">{title}</h3>
+        <p className="text-xs text-gray-600 mb-2" style={{
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+          maxHeight: '2.4em'
+        }}>{truncatedDescription}</p>
+        <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
+          <div className="flex items-center gap-1">
+            <Lightbulb className="w-3 h-3" />
+            <span className="truncate">{movementName}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-gray-500">
+          <div className="flex items-center gap-1">
+            <Heart className="w-3 h-3" />
+            <span>{item._count?.supporters || 0} supporters</span>
+          </div>
+          {item.fundingRaised > 0 && (
+            <div className="flex items-center gap-1">
+              <DollarSign className="w-3 h-3" />
+              <span>${((item.fundingRaised || 0) / 100).toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 };
 
 const AuthModal = ({ mode, onClose, onSuccess, onSwitchMode }) => {
