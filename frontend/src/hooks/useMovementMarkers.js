@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import mapboxgl from 'mapbox-gl';
+import { clearMarkers, setupMarkerHover } from '../utils/mapMarkers';
 
 const MARKER_STYLE = `
   background-color: #16a34a;
@@ -14,28 +15,6 @@ const MARKER_STYLE = `
   font-weight: bold;
   box-shadow: 0 4px 6px rgba(0,0,0,0.3);
 `;
-
-const clearMarkers = (mapInstance, markersRef) => {
-  if (!markersRef?.current) {
-    return;
-  }
-
-  markersRef.current.forEach(marker => {
-    if (marker._updateTimeout) {
-      clearTimeout(marker._updateTimeout);
-    }
-    if (mapInstance && marker._moveHandler) {
-      mapInstance.off('move', marker._moveHandler);
-      mapInstance.off('zoom', marker._moveHandler);
-    }
-    marker._hoverUpdateFn = null;
-    marker._moveHandler = null;
-    marker._updateTimeout = null;
-    marker.remove();
-  });
-
-  markersRef.current = [];
-};
 
 const fitMapToMovements = (mapInstance, movements, showSearch) => {
   if (!mapInstance || movements.length === 0) {
@@ -86,57 +65,19 @@ const createMovementMarker = ({ mapInstance, movement, setPreviewMovement, setHo
     .setLngLat([movement.longitude, movement.latitude])
     .addTo(mapInstance);
 
-  const handleMouseEnter = () => {
-    const updatePosition = () => {
-      if (!mapInstance) return;
-      const lngLat = [movement.longitude, movement.latitude];
-      const point = mapInstance.project(lngLat);
-      const mapContainerRect = mapInstance.getContainer().getBoundingClientRect();
-
+  setupMarkerHover({
+    mapInstance,
+    marker,
+    coordinates: [movement.longitude, movement.latitude],
+    onHover: (position) => {
       setHoveredItem({
         type: 'movement',
         item: movement,
-        position: {
-          x: point.x + mapContainerRect.left,
-          y: point.y + mapContainerRect.top
-        }
+        position
       });
-    };
-
-    updatePosition();
-    marker._hoverUpdateFn = updatePosition;
-    marker._updateTimeout = null;
-    marker._moveHandler = () => {
-      if (marker._updateTimeout) {
-        clearTimeout(marker._updateTimeout);
-      }
-      marker._updateTimeout = setTimeout(() => {
-        if (marker._hoverUpdateFn) {
-          marker._hoverUpdateFn();
-        }
-      }, 50);
-    };
-
-    mapInstance.on('move', marker._moveHandler);
-    mapInstance.on('zoom', marker._moveHandler);
-  };
-
-  const handleMouseLeave = () => {
-    if (marker._updateTimeout) {
-      clearTimeout(marker._updateTimeout);
-      marker._updateTimeout = null;
-    }
-    if (mapInstance && marker._moveHandler) {
-      mapInstance.off('move', marker._moveHandler);
-      mapInstance.off('zoom', marker._moveHandler);
-      marker._moveHandler = null;
-    }
-    marker._hoverUpdateFn = null;
-    setHoveredItem(null);
-  };
-
-  el.addEventListener('mouseenter', handleMouseEnter);
-  el.addEventListener('mouseleave', handleMouseLeave);
+    },
+    onHoverEnd: () => setHoveredItem(null)
+  });
 
   return marker;
 };

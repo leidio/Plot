@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import mapboxgl from 'mapbox-gl';
+import { clearMarkers, setupMarkerHover } from '../../utils/mapMarkers';
 
 const IDEA_MARKER_STYLE = `
   background-color: #2563eb;
@@ -13,28 +14,6 @@ const IDEA_MARKER_STYLE = `
   font-size: 18px;
   box-shadow: 0 4px 6px rgba(0,0,0,0.3);
 `;
-
-const clearIdeaMarkers = (mapInstance, markersRef) => {
-  if (!markersRef?.current) {
-    return;
-  }
-
-  markersRef.current.forEach(marker => {
-    if (marker._updateTimeout) {
-      clearTimeout(marker._updateTimeout);
-    }
-    if (mapInstance && marker._moveHandler) {
-      mapInstance.off('move', marker._moveHandler);
-      mapInstance.off('zoom', marker._moveHandler);
-    }
-    marker._hoverUpdateFn = null;
-    marker._moveHandler = null;
-    marker._updateTimeout = null;
-    marker.remove();
-  });
-
-  markersRef.current = [];
-};
 
 const fitMapToIdeas = ({ mapInstance, ideas, headerCollapsed }) => {
   if (!mapInstance || ideas.length === 0) {
@@ -101,57 +80,19 @@ const createIdeaMarker = ({
     }
   };
 
-  const handleMouseEnter = () => {
-    const updatePosition = () => {
-      if (!mapInstance) return;
-      const lngLat = [idea.longitude, idea.latitude];
-      const point = mapInstance.project(lngLat);
-      const mapContainerRect = mapInstance.getContainer().getBoundingClientRect();
-
+  setupMarkerHover({
+    mapInstance,
+    marker,
+    coordinates: [idea.longitude, idea.latitude],
+    onHover: (position) => {
       setHoveredItem({
         type: 'idea',
         item: ideaWithMovement,
-        position: {
-          x: point.x + mapContainerRect.left,
-          y: point.y + mapContainerRect.top
-        }
+        position
       });
-    };
-
-    updatePosition();
-    marker._hoverUpdateFn = updatePosition;
-    marker._updateTimeout = null;
-    marker._moveHandler = () => {
-      if (marker._updateTimeout) {
-        clearTimeout(marker._updateTimeout);
-      }
-      marker._updateTimeout = setTimeout(() => {
-        if (marker._hoverUpdateFn) {
-          marker._hoverUpdateFn();
-        }
-      }, 50);
-    };
-
-    mapInstance.on('move', marker._moveHandler);
-    mapInstance.on('zoom', marker._moveHandler);
-  };
-
-  const handleMouseLeave = () => {
-    if (marker._updateTimeout) {
-      clearTimeout(marker._updateTimeout);
-      marker._updateTimeout = null;
-    }
-    if (mapInstance && marker._moveHandler) {
-      mapInstance.off('move', marker._moveHandler);
-      mapInstance.off('zoom', marker._moveHandler);
-      marker._moveHandler = null;
-    }
-    marker._hoverUpdateFn = null;
-    setHoveredItem(null);
-  };
-
-  el.addEventListener('mouseenter', handleMouseEnter);
-  el.addEventListener('mouseleave', handleMouseLeave);
+    },
+    onHoverEnd: () => setHoveredItem(null)
+  });
 
   return marker;
 };
@@ -175,7 +116,7 @@ export const useIdeaMarkers = ({
       return;
     }
 
-    clearIdeaMarkers(mapInstance, markersRef);
+    clearMarkers(mapInstance, markersRef);
 
     ideas.forEach(idea => {
       const marker = createIdeaMarker({
@@ -193,7 +134,7 @@ export const useIdeaMarkers = ({
 
     fitMapToIdeas({ mapInstance, ideas, headerCollapsed });
 
-    return () => clearIdeaMarkers(mapInstance, markersRef);
+    return () => clearMarkers(mapInstance, markersRef);
   }, [
     mapRef,
     markersRef,
