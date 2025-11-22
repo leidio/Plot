@@ -4,6 +4,11 @@ const prisma = require('../lib/prisma');
 
 const router = express.Router();
 
+// Helper to get Socket.IO instance
+const getIO = (req) => {
+  return req.app.get('io');
+};
+
 // Get all movements
 router.get('/', async (req, res) => {
   try {
@@ -55,13 +60,16 @@ router.get('/:id', async (req, res) => {
           select: { id: true, firstName: true, lastName: true, avatar: true, bio: true }
         },
         members: {
+          take: 50, // Limit members to first 50
           include: {
             user: {
               select: { id: true, firstName: true, lastName: true, avatar: true }
             }
-          }
+          },
+          orderBy: { joinedAt: 'desc' }
         },
         ideas: {
+          take: 100, // Limit ideas to first 100
           include: {
             creator: {
               select: { id: true, firstName: true, lastName: true, avatar: true }
@@ -71,6 +79,9 @@ router.get('/:id', async (req, res) => {
             }
           },
           orderBy: { createdAt: 'desc' }
+        },
+        _count: {
+          select: { members: true, ideas: true }
         }
       }
     });
@@ -170,6 +181,19 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
         link: `/movements/${req.params.id}`
       }
     });
+
+    // Emit real-time event
+    const io = getIO(req);
+    if (io) {
+      io.to(`movement:${req.params.id}`).emit('movement:member_joined', {
+        movementId: req.params.id,
+        userId: req.user.userId
+      });
+      io.emit('movement:updated', {
+        movementId: req.params.id,
+        type: 'member_joined'
+      });
+    }
 
     res.status(201).json({ membership });
   } catch (error) {

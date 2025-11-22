@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { Search, Plus, Heart, Share2, DollarSign, Users, MapPin, Filter, Bell, User, X, Check, ChevronUp, ChevronDown, Lightbulb, Star, LogOut, Settings, Trash2, Mail, Lock, Moon, Sun } from 'lucide-react';
+import { Search, Plus, Heart, Share2, DollarSign, Users, MapPin, Filter, Bell, User, X, Check, ChevronUp, ChevronDown, Lightbulb, Star, LogOut, Settings, Trash2, Mail, Lock, Moon, Sun, MessageSquare, Activity } from 'lucide-react';
 import { useTheme } from './hooks/useTheme';
+import { useWebSocket } from './hooks/useWebSocket';
 import axios from 'axios';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
@@ -9,21 +10,16 @@ mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 // API configuration
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
-// Helper function to get auth token from localStorage
-const getAuthToken = () => {
-  return localStorage.getItem('authToken');
-};
-
 // Helper function to make authenticated API calls
+// Cookies are automatically sent with requests when credentials: 'include' is set
 const apiCall = async (method, endpoint, data = null) => {
-  const token = getAuthToken();
   const config = {
     method,
     url: `${API_BASE_URL}${endpoint}`,
     headers: {
-      'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` })
+      'Content-Type': 'application/json'
     },
+    withCredentials: true, // Include cookies in requests
     ...(data && { data })
   };
   return axios(config);
@@ -58,24 +54,35 @@ const PlotApp = () => {
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const profileDropdownRef = useRef(null);
+  
+  // WebSocket setup - get token from cookies via API call
+  const [wsToken, setWsToken] = useState(null);
+  const { socket, isConnected } = useWebSocket(wsToken, true);
 
   useEffect(() => {
     loadMovements();
-    // Check if user is already logged in
-    const token = localStorage.getItem('authToken');
-    if (token) {
-      // Try to get current user info
-      apiCall('get', '/auth/me')
-        .then(response => {
-          if (response.data.user) {
-            setCurrentUser(response.data.user);
-          }
-        })
-        .catch(() => {
-          // Token might be invalid, clear it
-          localStorage.removeItem('authToken');
-        });
+    // Check if user is already logged in (via cookie)
+    // If they have old localStorage token but no cookie, they need to log in again
+    const oldToken = localStorage.getItem('authToken');
+    if (oldToken) {
+      // Clear old token - we're using cookies now
+      localStorage.removeItem('authToken');
     }
+    
+    apiCall('get', '/auth/me')
+      .then(response => {
+        if (response.data.user) {
+          setCurrentUser(response.data.user);
+          // For WebSocket, we'll use null token and let server check cookies
+          // Socket.IO will send cookies automatically with withCredentials
+          setWsToken(null);
+        }
+      })
+      .catch(() => {
+        // Not logged in or token invalid - this is fine
+        // User will need to log in again
+        setWsToken(null);
+      });
   }, []);
 
   // Close dropdown when clicking outside
@@ -95,8 +102,13 @@ const PlotApp = () => {
     };
   }, [showProfileDropdown]);
 
-  const handleSignOut = () => {
-    localStorage.removeItem('authToken');
+  const handleSignOut = async () => {
+    try {
+      await apiCall('post', '/auth/logout');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+    // Reset app state
     setCurrentUser(null);
     setShowProfileDropdown(false);
     setShowProfileModal(false);
@@ -600,6 +612,8 @@ const PlotApp = () => {
             currentUser={currentUser}
             map={map}
             markersRef={markersRef}
+            socket={socket}
+            isConnected={isConnected}
             onBack={() => {
               setViewMode('movements');
               setSelectedMovement(null);
@@ -705,6 +719,8 @@ const PlotApp = () => {
           }}
           onSupport={handleSupportIdea}
           map={map}
+          socket={socket}
+          isConnected={isConnected}
         />
       )}
 
@@ -758,10 +774,11 @@ const PlotApp = () => {
 };
 
 // MovementView component - full page view with collapsible header
-const MovementView = ({ movement, ideas, currentUser, map, markersRef, onBack, onIdeaSelect, onCreateIdea, addIdeaMode, setAddIdeaMode, onLocationClick, onFollowChange, onTagClick }) => {
+const MovementView = ({ movement, ideas, currentUser, map, markersRef, socket, isConnected, onBack, onIdeaSelect, onCreateIdea, addIdeaMode, setAddIdeaMode, onLocationClick, onFollowChange, onTagClick }) => {
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [isLoadingFollow, setIsLoadingFollow] = useState(false);
+  const [viewers, setViewers] = useState([]); // Users currently viewing this movement
   const headerRef = useRef(null);
   const contentRef = useRef(null);
 
@@ -776,6 +793,71 @@ const MovementView = ({ movement, ideas, currentUser, map, markersRef, onBack, o
       setIsFollowing(false);
     }
   }, [movement, currentUser]);
+
+  // WebSocket presence tracking
+  useEffect(() => {
+    if (!socket || !isConnected || !movement || !currentUser) return;
+
+    // Join movement room
+    socket.emit('join:movement', movement.id);
+
+    // Create current user object for display
+    const currentUserViewer = {
+      userId: currentUser.id,
+      firstName: currentUser.firstName,
+      lastName: currentUser.lastName,
+      avatar: currentUser.avatar
+    };
+
+    // Handle presence updates
+    const handlePresenceUpdate = (data) => {
+      if (data.movementId === movement.id && data.viewers) {
+        // Include current user in viewers list
+        const allViewers = [...data.viewers];
+        const hasCurrentUser = allViewers.some(v => v && v.userId === currentUser.id);
+        if (!hasCurrentUser) {
+          allViewers.push(currentUserViewer);
+        }
+        // Sort to put current user first
+        allViewers.sort((a, b) => {
+          if (a.userId === currentUser.id) return -1;
+          if (b.userId === currentUser.id) return 1;
+          return 0;
+        });
+        setViewers(allViewers);
+      }
+    };
+
+    const handleUserJoined = (data) => {
+      if (data.movementId === movement.id) {
+        handlePresenceUpdate(data);
+      }
+    };
+
+    const handleUserLeft = (data) => {
+      if (data.movementId === movement.id) {
+        handlePresenceUpdate(data);
+      }
+    };
+
+    socket.on('presence:update', handlePresenceUpdate);
+    socket.on('user:joined', handleUserJoined);
+    socket.on('user:left', handleUserLeft);
+
+    // Initialize with current user
+    if (currentUserViewer) {
+      setViewers([currentUserViewer]);
+    }
+
+    return () => {
+      if (socket) {
+        socket.emit('leave:movement', movement.id);
+        socket.off('presence:update', handlePresenceUpdate);
+        socket.off('user:joined', handleUserJoined);
+        socket.off('user:left', handleUserLeft);
+      }
+    };
+  }, [socket, isConnected, movement, currentUser]);
 
   // Calculate stats
   const plottersCount = movement?._count?.members || 0;
@@ -950,12 +1032,13 @@ const MovementView = ({ movement, ideas, currentUser, map, markersRef, onBack, o
           // Use a conservative estimate to ensure markers are visible
           // Add extra buffer around markers so they don't butt up against the edges
           const topPadding = headerCollapsed ? 100 : 370;
+          const bufferSize = 150; // Increased buffer for equal spacing
           map.current.fitBounds(bounds, { 
             padding: {
-              top: topPadding + 40,  // Extra buffer on top
-              bottom: 120,            // Increased buffer on bottom
-              left: 120,              // Increased buffer on left
-              right: 120              // Increased buffer on right
+              top: topPadding + bufferSize,  // Extra buffer on top
+              bottom: bufferSize,            // Increased buffer on bottom
+              left: bufferSize,              // Increased buffer on left
+              right: bufferSize              // Increased buffer on right
             }
           });
         }
@@ -1033,6 +1116,50 @@ const MovementView = ({ movement, ideas, currentUser, map, markersRef, onBack, o
               )}
             </div>
             <div className="flex items-center gap-4">
+              {/* Presence Indicator */}
+              {currentUser && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg">
+                  <div className="flex -space-x-2">
+                    {(viewers.length > 0 ? viewers : [{
+                      userId: currentUser.id,
+                      firstName: currentUser.firstName,
+                      lastName: currentUser.lastName,
+                      avatar: currentUser.avatar
+                    }]).slice(0, 3).map((viewer, idx) => {
+                      const isCurrentUser = viewer && viewer.userId === currentUser?.id;
+                      return (
+                        <div
+                          key={viewer?.userId || idx}
+                          className={`w-8 h-8 rounded-full border-2 border-white flex items-center justify-center text-xs font-medium ${
+                            isCurrentUser 
+                              ? 'bg-blue-500 text-white ring-2 ring-blue-300' 
+                              : 'bg-gray-300 text-gray-700'
+                          }`}
+                          title={viewer ? `${viewer.firstName} ${viewer.lastName}` : ''}
+                        >
+                          {viewer?.avatar ? (
+                            <img src={viewer.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+                          ) : (
+                            <span>
+                              {viewer?.firstName?.[0] || ''}{viewer?.lastName?.[0] || ''}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {viewers.length > 3 && (
+                      <div className="w-8 h-8 rounded-full border-2 border-white bg-gray-200 flex items-center justify-center text-xs font-medium text-gray-700">
+                        +{viewers.length - 3}
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-sm text-gray-600">
+                    {viewers.length === 0 || (viewers.length === 1 && viewers[0]?.userId === currentUser?.id)
+                      ? 'You are viewing'
+                      : `${viewers.length} ${viewers.length === 1 ? 'person is' : 'people are'} viewing`}
+                  </span>
+                </div>
+              )}
               {!headerCollapsed && (
                 <>
                   {/* Stats Cards */}
@@ -1392,10 +1519,12 @@ const MovementDetails = ({ movement, ideas, currentUser, addIdeaMode, onIdeaSele
   );
 };
 
-const IdeaModal = ({ idea, onClose, currentUser, onSupport, map }) => {
+const IdeaModal = ({ idea, onClose, currentUser, onSupport, map, socket, isConnected }) => {
   const ideaMapContainer = useRef(null);
   const ideaMap = useRef(null);
   const ideaMarkerRef = useRef(null);
+  const [activities, setActivities] = useState([]);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
   useEffect(() => {
     if (!idea || !idea.latitude || !idea.longitude) return;
@@ -1469,12 +1598,65 @@ const IdeaModal = ({ idea, onClose, currentUser, onSupport, map }) => {
     };
   }, [idea]);
 
+  // Fetch activities when idea changes
+  useEffect(() => {
+    if (!idea?.id) return;
+    
+    const fetchActivities = async () => {
+      setIsLoadingActivities(true);
+      try {
+        const response = await apiCall('get', `/ideas/${idea.id}/activities`);
+        setActivities(response.data.activities || []);
+      } catch (error) {
+        console.error('Error fetching activities:', error);
+        setActivities([]);
+      } finally {
+        setIsLoadingActivities(false);
+      }
+    };
+
+    fetchActivities();
+  }, [idea?.id]);
+
+  // Listen for real-time activity updates
+  useEffect(() => {
+    if (!socket || !isConnected || !idea?.id) return;
+
+    const handleActivityUpdate = (data) => {
+      if (data.ideaId === idea.id) {
+        setActivities(prev => [data.activity, ...prev].slice(0, 50)); // Keep last 50
+      }
+    };
+
+    socket.on('idea:activity', handleActivityUpdate);
+
+    return () => {
+      socket.off('idea:activity', handleActivityUpdate);
+    };
+  }, [socket, isConnected, idea?.id]);
+
   if (!idea) {
     return null;
   }
 
   const isSupporting = idea.isSupporting || false;
   const isCreator = currentUser && idea.creator && (idea.creator.id === currentUser.id);
+  
+  const formatActivityTime = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
 
   return (
     <div className="fixed inset-0 z-50 pointer-events-none">
@@ -1589,6 +1771,50 @@ const IdeaModal = ({ idea, onClose, currentUser, onSupport, map }) => {
               <p className="text-sm text-gray-500">No needs listed yet</p>
             )}
           </div>
+        </div>
+
+        {/* Activity Feed */}
+        <div className="mb-6">
+          <h3 className="font-semibold mb-3 flex items-center gap-2">
+            <Activity className="w-5 h-5" />
+            Activity Feed
+          </h3>
+          {isLoadingActivities ? (
+            <div className="text-center py-4 text-gray-500">Loading activities...</div>
+          ) : activities.length > 0 ? (
+            <div className="space-y-3">
+              {activities.map((activity, idx) => (
+                <div key={activity.id || idx} className="border-b border-gray-200 pb-3 last:border-0">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                      {activity.user?.avatar ? (
+                        <img src={activity.user.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+                      ) : (
+                        <span className="text-xs font-medium text-gray-600">
+                          {activity.user?.firstName?.[0] || ''}{activity.user?.lastName?.[0] || ''}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-700">
+                        <span className="font-medium">{activity.user?.firstName || 'Someone'} {activity.user?.lastName || ''}</span>
+                        {' '}
+                        {activity.type === 'task_added' && `added task "${activity.task?.title || ''}"`}
+                        {activity.type === 'task_claimed' && `claimed task "${activity.task?.title || ''}"`}
+                        {activity.type === 'task_updated' && `updated task "${activity.task?.title || ''}"`}
+                        {activity.type === 'support' && 'supported this idea'}
+                        {activity.type === 'donation' && `donated $${((activity.donation?.amount || 0) / 100).toLocaleString()}`}
+                        {activity.type === 'comment' && `commented: "${(activity.comment?.content || '').substring(0, 50)}${activity.comment?.content?.length > 50 ? '...' : ''}"`}
+                      </p>
+                      <span className="text-xs text-gray-400 mt-1 block">{formatActivityTime(activity.createdAt)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No activity yet</p>
+          )}
         </div>
 
         {idea.comments && idea.comments.length > 0 && (

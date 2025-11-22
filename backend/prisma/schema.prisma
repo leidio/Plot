@@ -29,6 +29,7 @@ model User {
   donations          Donation[]
   comments           Comment[]
   notifications      Notification[]
+  claimedTasks       Task[]          @relation("ClaimedTasks")
 
   @@index([email])
 }
@@ -138,12 +139,16 @@ model Task {
   completed   Boolean  @default(false)
   completedBy String?
   completedAt DateTime?
+  claimedBy   String?
+  claimedAt   DateTime?
   order       Int      @default(0)
   createdAt   DateTime @default(now())
 
   idea        Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  claimedUser User?    @relation("ClaimedTasks", fields: [claimedBy], references: [id], onDelete: SetNull)
 
   @@index([ideaId])
+  @@index([claimedBy])
 }
 
 model Need {

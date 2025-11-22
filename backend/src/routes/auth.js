@@ -2,19 +2,46 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
+const rateLimit = require('express-rate-limit');
+const { validateRegister, validateLogin, validatePasswordUpdate, validateEmailUpdate } = require('../middleware/validation');
 
 const router = express.Router();
 
+// Rate limiting for auth routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 requests per windowMs
+  message: { error: { message: 'Too many authentication attempts, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Helper function to set auth cookie
+const setAuthCookie = (res, token) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.cookie('authToken', token, {
+    httpOnly: true,
+    secure: isProduction, // Only send over HTTPS in production
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: '/'
+  });
+};
+
+// Helper function to clear auth cookie
+const clearAuthCookie = (res) => {
+  res.clearCookie('authToken', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/'
+  });
+};
+
 // Register new user
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, validateRegister, async (req, res) => {
   try {
     const { email, password, firstName, lastName, location } = req.body;
-
-    if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ 
-        error: { message: 'Email, password, first name, and last name are required' }
-      });
-    }
 
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
@@ -49,7 +76,10 @@ router.post('/register', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    res.status(201).json({ user, token });
+    // Set httpOnly cookie
+    setAuthCookie(res, token);
+
+    res.status(201).json({ user });
   } catch (error) {
     console.error('Registration error:', error);
     
@@ -74,15 +104,9 @@ router.post('/register', async (req, res) => {
 });
 
 // Login
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, validateLogin, async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ 
-        error: { message: 'Email and password are required' }
-      });
-    }
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
@@ -104,9 +128,12 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    // Set httpOnly cookie
+    setAuthCookie(res, token);
+
     const { passwordHash, ...userData } = user;
 
-    res.json({ user: userData, token });
+    res.json({ user: userData });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: { message: 'Login failed' } });
@@ -116,7 +143,8 @@ router.post('/login', async (req, res) => {
 // Get current user
 router.get('/me', async (req, res) => {
   try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    // Check cookie first, then fall back to Authorization header for backward compatibility
+    const token = req.cookies.authToken || req.headers.authorization?.replace('Bearer ', '');
     
     if (!token) {
       return res.status(401).json({ 
@@ -154,19 +182,15 @@ router.get('/me', async (req, res) => {
 });
 
 // Update email (requires authentication)
-router.put('/me/email', async (req, res) => {
+router.put('/me/email', validateEmailUpdate, async (req, res) => {
   try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    const token = req.cookies.authToken || req.headers.authorization?.replace('Bearer ', '');
     if (!token) {
       return res.status(401).json({ error: { message: 'No token provided' } });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: { message: 'Email is required' } });
-    }
 
     // Check if email is already taken
     const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -197,19 +221,15 @@ router.put('/me/email', async (req, res) => {
 });
 
 // Update password (requires authentication)
-router.put('/me/password', async (req, res) => {
+router.put('/me/password', validatePasswordUpdate, async (req, res) => {
   try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    const token = req.cookies.authToken || req.headers.authorization?.replace('Bearer ', '');
     if (!token) {
       return res.status(401).json({ error: { message: 'No token provided' } });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const { currentPassword, newPassword } = req.body;
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: { message: 'Current password and new password are required' } });
-    }
 
     // Get user with password hash
     const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
@@ -239,10 +259,16 @@ router.put('/me/password', async (req, res) => {
   }
 });
 
+// Logout
+router.post('/logout', (req, res) => {
+  clearAuthCookie(res);
+  res.json({ message: 'Logged out successfully' });
+});
+
 // Delete account (requires authentication)
 router.delete('/me', async (req, res) => {
   try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    const token = req.cookies.authToken || req.headers.authorization?.replace('Bearer ', '');
     if (!token) {
       return res.status(401).json({ error: { message: 'No token provided' } });
     }
@@ -253,6 +279,9 @@ router.delete('/me', async (req, res) => {
     await prisma.user.delete({
       where: { id: decoded.userId }
     });
+
+    // Clear auth cookie
+    clearAuthCookie(res);
 
     res.json({ message: 'Account deleted successfully' });
   } catch (error) {
