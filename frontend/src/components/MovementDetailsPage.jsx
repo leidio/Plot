@@ -1,72 +1,42 @@
-import React, { useRef, useEffect, useState } from 'react';
-import mapboxgl from 'mapbox-gl';
+import React, { useEffect, useState } from 'react';
 import MovementView from './MovementView';
 import HoverPreviewModal from './HoverPreviewModal';
 
 const MovementDetailsPage = ({
+  mapRef,
+  markersRef,
   movement,
   ideas,
   currentUser,
   socket,
   isConnected,
+  mapReady,
   onBack,
   onIdeaSelect,
   onLocationClick,
   onTagClick,
   onFollowChange,
-  onRequestAddIdea
+  onRequestAddIdea,
+  apiCall
 }) => {
-  const mapContainerRef = useRef(null);
-  const mapRef = useRef(null);
-  const markersRef = useRef([]);
-  const [mapReady, setMapReady] = useState(false);
   const [addIdeaMode, setAddIdeaMode] = useState(false);
   const [hoveredItem, setHoveredItem] = useState(null);
 
   useEffect(() => {
-    if (mapRef.current || !mapContainerRef.current) return;
-
-    mapRef.current = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
-      center: [-90.0715, 29.9511],
-      zoom: 12
-    });
-
-    mapRef.current.addControl(new mapboxgl.NavigationControl(), 'bottom-left');
-
-    const handleLoad = () => setMapReady(true);
-    mapRef.current.on('load', handleLoad);
-
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.off('load', handleLoad);
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!mapRef.current || !mapReady) return;
+    if (!mapRef?.current || !mapReady) return;
     const mapInstance = mapRef.current;
 
     const handleMapClick = (e) => {
-      if (addIdeaMode && movement && currentUser) {
-        const { lng, lat } = e.lngLat;
-        onRequestAddIdea({ longitude: lng, latitude: lat });
-        setAddIdeaMode(false);
-      }
+      if (!addIdeaMode || !movement || !currentUser) return;
+      const { lng, lat } = e.lngLat;
+      onRequestAddIdea({ longitude: lng, latitude: lat });
+      setAddIdeaMode(false);
     };
 
     if (addIdeaMode) {
+      mapInstance.on('click', handleMapClick);
       if (mapInstance.getCanvas()) {
         mapInstance.getCanvas().style.cursor = 'crosshair';
-      }
-      mapInstance.on('click', handleMapClick);
-    } else {
-      if (mapInstance.getCanvas()) {
-        mapInstance.getCanvas().style.cursor = '';
       }
     }
 
@@ -76,11 +46,10 @@ const MovementDetailsPage = ({
         mapInstance.getCanvas().style.cursor = '';
       }
     };
-  }, [addIdeaMode, movement, currentUser, mapReady, onRequestAddIdea]);
+  }, [addIdeaMode, mapReady, mapRef, movement, currentUser, onRequestAddIdea]);
 
   return (
-    <div className="flex-1 relative">
-      <div ref={mapContainerRef} className="absolute inset-0" />
+    <>
       <MovementView
         movement={movement}
         ideas={ideas}
@@ -97,10 +66,10 @@ const MovementDetailsPage = ({
         onLocationClick={onLocationClick}
         onFollowChange={onFollowChange}
         onTagClick={onTagClick}
-        onCancelAddIdea={() => setAddIdeaMode(false)}
+        apiCall={apiCall}
       />
       <HoverPreviewModal hoveredItem={hoveredItem} />
-    </div>
+    </>
   );
 };
 

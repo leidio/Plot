@@ -3,15 +3,11 @@ import mapboxgl from 'mapbox-gl';
 import { Search, Plus, Heart, Share2, DollarSign, Users, MapPin, Filter, Bell, User, X, Check, ChevronUp, ChevronDown, Lightbulb, Star, LogOut, Settings, Trash2, Mail, Lock, Moon, Sun, MessageSquare, Activity } from 'lucide-react';
 import { useTheme } from './hooks/useTheme';
 import { useWebSocket } from './hooks/useWebSocket';
-import { useMovementMarkers } from './hooks/useMovementMarkers';
 import { useMovements } from './hooks/useMovements';
 import { useIdeas } from './hooks/useIdeas';
-import HoverPreviewModal from './components/HoverPreviewModal';
-import MovementView from './components/MovementView';
 import IdeaModal from './components/IdeaModal';
-import MovementPreviewModal from './components/MovementPreviewModal';
-import MovementsList from './components/MovementsList';
-import SearchResultsPanel from './components/SearchResultsPanel';
+import MovementsPage from './components/MovementsPage';
+import MovementDetailsPage from './components/MovementDetailsPage';
 import AuthModal from './components/AuthModal';
 import CreateModal from './components/CreateModal';
 import ProfileModal from './components/ProfileModal';
@@ -44,7 +40,6 @@ const PlotApp = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [viewMode, setViewMode] = useState('movements');
   const [selectedMovement, setSelectedMovement] = useState(null);
-  const [previewMovement, setPreviewMovement] = useState(null);
   const [selectedIdea, setSelectedIdea] = useState(null);
   const {
     movements,
@@ -64,12 +59,11 @@ const PlotApp = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createType, setCreateType] = useState('movement');
   const [clickedCoordinates, setClickedCoordinates] = useState(null);
-  const [addIdeaMode, setAddIdeaMode] = useState(false);
-  const markersRef = useRef([]);
+  const movementMarkersRef = useRef([]);
+  const ideaMarkersRef = useRef([]);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const profileDropdownRef = useRef(null);
-  const [hoveredItem, setHoveredItem] = useState(null); // { type: 'movement' | 'idea', item: {}, position: { x, y } }
   
   // WebSocket setup - get token from cookies via API call
   const [wsToken, setWsToken] = useState(null);
@@ -185,63 +179,18 @@ const PlotApp = () => {
     );
   }, [mapReady, userLocation]);
 
-  // Add/update click handler for creating ideas
-  useEffect(() => {
-    if (!map.current) return;
-
-    const handleMapClick = (e) => {
-      // Only allow clicking to create ideas when in add idea mode
-      if (addIdeaMode && viewMode === 'movement-details' && selectedMovement && currentUser) {
-        const { lng, lat } = e.lngLat;
-        setClickedCoordinates({ longitude: lng, latitude: lat });
-        setCreateType('idea');
-        setShowCreateModal(true);
-        setAddIdeaMode(false); // Exit add idea mode after clicking
-      }
-    };
-
-    // Change cursor style when in add idea mode to indicate map is clickable
-    if (addIdeaMode && viewMode === 'movement-details' && selectedMovement && currentUser) {
-      if (map.current.getCanvas()) {
-        map.current.getCanvas().style.cursor = 'crosshair';
-      }
-    } else {
-      if (map.current.getCanvas()) {
-        map.current.getCanvas().style.cursor = '';
-      }
-    }
-
-    // Only add click handler if we're in movement-details view
-    if (viewMode === 'movement-details') {
-      map.current.on('click', handleMapClick);
-    }
-
-    return () => {
-      if (map.current) {
-        map.current.off('click', handleMapClick);
-        if (map.current.getCanvas()) {
-          map.current.getCanvas().style.cursor = '';
-        }
-      }
-    };
-  }, [viewMode, selectedMovement, currentUser, addIdeaMode]);
-
-  useMovementMarkers({
-    mapRef: map,
-    markersRef,
-    viewMode,
-    movements,
-    showSearch,
-    setHoveredItem,
-    setPreviewMovement
-  });
-
   const handleClearSearch = useCallback(() => {
     setSearchQuery('');
     setShowSearch(false);
     setWasSearching(false);
-        loadMovements();
+    loadMovements();
   }, [setSearchQuery, setShowSearch, setWasSearching, loadMovements]);
+
+  const handleRequestAddIdea = useCallback(({ longitude, latitude }) => {
+    setClickedCoordinates({ longitude, latitude });
+    setCreateType('idea');
+    setShowCreateModal(true);
+  }, []);
 
   const handleMovementSelect = async (movement) => {
     // Track if we were searching before viewing movement
@@ -484,103 +433,80 @@ const PlotApp = () => {
         <div ref={mapContainer} className="absolute inset-0" />
 
         {viewMode === 'movement-details' && selectedMovement ? (
-          <MovementView
+          <MovementDetailsPage
+            mapRef={map}
+            markersRef={ideaMarkersRef}
             movement={selectedMovement}
             ideas={ideas}
             currentUser={currentUser}
-            map={map}
-            markersRef={markersRef}
             socket={socket}
             isConnected={isConnected}
-            setHoveredItem={setHoveredItem}
+            mapReady={mapReady}
             apiCall={apiCall}
             onBack={() => {
               setViewMode('movements');
               setSelectedMovement(null);
               setIdeas([]);
-              // Restore search bar and results if we were searching before
               if (wasSearching) {
                 setShowSearch(true);
                 setWasSearching(false);
               }
             }}
             onIdeaSelect={handleIdeaSelect}
-            onCreateIdea={() => {
-              setAddIdeaMode(true);
-            }}
-            addIdeaMode={addIdeaMode}
             onLocationClick={(city, state) => {
-              // Navigate back to main page and search by location
               setViewMode('movements');
               setSelectedMovement(null);
               setIdeas([]);
               setSearchQuery(`${city}, ${state}`);
-              setShowSearch(true); // Show search box with the location query
-              setWasSearching(false); // Reset since we're starting a new search
-              // The search effect will automatically trigger and search for movements
+              setShowSearch(true);
+              setWasSearching(false);
             }}
             onTagClick={(tag) => {
-              // Navigate back to main page and search by tag
               setViewMode('movements');
               setSelectedMovement(null);
               setIdeas([]);
               setSearchQuery(tag);
-              setShowSearch(true); // Show search box with the tag query
-              // The search effect will automatically trigger and search for movements
+              setShowSearch(true);
             }}
             onFollowChange={async (movementId) => {
-              // Reload movement to get updated member count
               try {
                 const response = await apiCall('get', `/movements/${movementId}`);
                 if (response.data.movement) {
                   setSelectedMovement(response.data.movement);
                 }
-                // Also reload movements list to update counts
                 loadMovements();
               } catch (error) {
                 console.error('Error reloading movement:', error);
               }
             }}
+            onRequestAddIdea={handleRequestAddIdea}
           />
         ) : (
-          <div className="absolute inset-0 pointer-events-none flex">
-            <div className="flex-1" />
-            <div className="pointer-events-auto w-96 bg-white border-l border-gray-200 overflow-y-auto">
-              {searchQuery.trim() ? (
-                <SearchResultsPanel
-                  searchQuery={searchQuery}
-                  results={searchResults}
-                  isSearching={isSearching}
-                  onMovementSelect={handleMovementSelect}
-                  onIdeaSelect={handleIdeaSelect}
-                  onClear={handleClearSearch}
-                />
-              ) : (
-                <MovementsList 
-                  movements={filteredMovements}
-                  onSelect={handleMovementSelect}
-                  onTagClick={(tag) => {
-                    setSearchQuery(tag);
-                    setShowSearch(true);
-                    // The search effect will automatically trigger and search for movements
-                  }}
-                />
-              )}
-            </div>
-          </div>
+          <MovementsPage
+            mapRef={map}
+            markersRef={movementMarkersRef}
+            movements={filteredMovements}
+            searchResults={searchResults}
+            isSearching={isSearching}
+            searchQuery={searchQuery}
+            onSearchChange={(value) => {
+              setSearchQuery(value);
+              if (!showSearch) {
+                setShowSearch(true);
+              }
+              if (viewMode === 'movement-details' && value.trim()) {
+                setViewMode('movements');
+                setSelectedMovement(null);
+                setIdeas([]);
+              }
+            }}
+            onMovementSelect={handleMovementSelect}
+            onIdeaSelect={handleIdeaSelect}
+            showSearch={showSearch}
+            onClearSearch={handleClearSearch}
+          />
         )}
       </div>
-
-      {previewMovement && (
-        <MovementPreviewModal
-          movement={previewMovement}
-          onClose={() => setPreviewMovement(null)}
-          onViewFullPage={async () => {
-            setPreviewMovement(null);
-            await handleMovementSelect(previewMovement);
-          }}
-        />
-      )}
 
       {selectedIdea && (
         <IdeaModal 
@@ -625,17 +551,15 @@ const PlotApp = () => {
           onClose={() => {
             setShowCreateModal(false);
             setClickedCoordinates(null);
-            setAddIdeaMode(false);
           }}
           onSuccess={() => {
             setShowCreateModal(false);
             setClickedCoordinates(null);
-            setAddIdeaMode(false);
             loadMovements();
             // Reload ideas if viewing a movement
-            if (selectedMovement) {
-              loadIdeas(selectedMovement.id);
-            }
+      if (selectedMovement) {
+        loadIdeas(selectedMovement.id);
+      }
           }}
         />
       )}
@@ -651,9 +575,6 @@ const PlotApp = () => {
           apiCall={apiCall}
         />
       )}
-
-      {/* Hover Preview Modal */}
-      <HoverPreviewModal hoveredItem={hoveredItem} />
     </div>
   );
 };
