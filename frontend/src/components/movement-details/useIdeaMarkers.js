@@ -112,29 +112,48 @@ export const useIdeaMarkers = ({
       return;
     }
 
-    if (!mapInstance.loaded()) {
-      return;
-    }
+    let isCancelled = false;
 
-    clearMarkers(mapInstance, markersRef);
+    const renderMarkers = () => {
+      if (isCancelled) return;
+      clearMarkers(mapInstance, markersRef);
 
-    ideas.forEach(idea => {
-      const marker = createIdeaMarker({
-        mapInstance,
-        idea,
-        movement,
-        onIdeaSelect,
-        setHoveredItem
+      ideas.forEach(idea => {
+        const marker = createIdeaMarker({
+          mapInstance,
+          idea,
+          movement,
+          onIdeaSelect,
+          setHoveredItem
+        });
+
+        if (marker) {
+          markersRef.current.push(marker);
+        }
       });
 
-      if (marker) {
-        markersRef.current.push(marker);
-      }
-    });
+      fitMapToIdeas({ mapInstance, ideas, headerCollapsed });
+    };
 
-    fitMapToIdeas({ mapInstance, ideas, headerCollapsed });
+    if (mapInstance.loaded()) {
+      renderMarkers();
+    } else {
+      const handleLoad = () => {
+        renderMarkers();
+      };
+      mapInstance.once('load', handleLoad);
 
-    return () => clearMarkers(mapInstance, markersRef);
+      return () => {
+        isCancelled = true;
+        mapInstance.off('load', handleLoad);
+        clearMarkers(mapInstance, markersRef);
+      };
+    }
+
+    return () => {
+      isCancelled = true;
+      clearMarkers(mapInstance, markersRef);
+    };
   }, [
     mapRef,
     markersRef,
