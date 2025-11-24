@@ -112,3 +112,44 @@ export const setupMarkerHover = ({
   marker._hoverCleanup = cleanupHover;
 };
 
+export const normalizeCoordinate = (value) => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
+export const projectToScreenPosition = (mapInstance, coordinates) => {
+  if (
+    !mapInstance ||
+    !Array.isArray(coordinates) ||
+    coordinates.length !== 2 ||
+    !Number.isFinite(coordinates[0]) ||
+    !Number.isFinite(coordinates[1])
+  ) {
+    return null;
+  }
+
+  const point = mapInstance.project(coordinates);
+  const container = mapInstance.getContainer?.();
+  if (!container) {
+    return null;
+  }
+
+  const rect = container.getBoundingClientRect();
+  return {
+    x: point.x + rect.left,
+    y: point.y + rect.top
+  };
+};
+
