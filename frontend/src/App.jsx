@@ -64,6 +64,7 @@ const PlotApp = () => {
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const profileDropdownRef = useRef(null);
+  const [isMovementLoading, setIsMovementLoading] = useState(false);
   
   // WebSocket setup - get token from cookies via API call
   const [wsToken, setWsToken] = useState(null);
@@ -202,26 +203,29 @@ const PlotApp = () => {
       setShowSearch(false);
     }
     
+    // Show loading state
+    setIsMovementLoading(true);
+    setViewMode('movement-details');
+    
     // Fetch full movement details with membership info
     try {
       const response = await apiCall('get', `/movements/${movement.id}`);
       if (response.data.movement) {
         setSelectedMovement(response.data.movement);
-        setViewMode('movement-details');
         // Load ideas for this movement
         await loadIdeas(movement.id);
       } else {
         // Fallback to basic movement data
         setSelectedMovement(movement);
-        setViewMode('movement-details');
         await loadIdeas(movement.id);
       }
     } catch (error) {
       console.error('Error loading movement details:', error);
       // Fallback to basic movement data
       setSelectedMovement(movement);
-      setViewMode('movement-details');
       await loadIdeas(movement.id);
+    } finally {
+      setIsMovementLoading(false);
     }
   };
 
@@ -433,7 +437,16 @@ const PlotApp = () => {
         <div ref={mapContainer} className="absolute inset-0" />
 
         {viewMode === 'movement-details' && selectedMovement ? (
-          <MovementDetailsPage
+          <>
+            {isMovementLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white/70 backdrop-blur-sm z-10">
+                <div className="flex flex-col items-center space-y-3">
+                  <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
+                  <p className="text-sm text-gray-600">Loading movement details…</p>
+                </div>
+              </div>
+            )}
+            <MovementDetailsPage
             mapRef={map}
             markersRef={ideaMarkersRef}
             movement={selectedMovement}
@@ -481,6 +494,7 @@ const PlotApp = () => {
             }}
             onRequestAddIdea={handleRequestAddIdea}
           />
+          </>
         ) : (
           <MovementsPage
             mapRef={map}
