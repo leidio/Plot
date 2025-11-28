@@ -11,13 +11,16 @@ export const useTheme = () => {
   });
 
   useEffect(() => {
-    // Apply theme class to root element
+    // Apply theme class to root element (for Tailwind)
+    // AND data-theme attribute (for DaisyUI)
     const root = document.documentElement;
     if (isDark) {
       root.classList.add('dark');
+      root.setAttribute('data-theme', 'dark');
       localStorage.setItem('theme', 'dark');
     } else {
       root.classList.remove('dark');
+      root.setAttribute('data-theme', 'light');
       localStorage.setItem('theme', 'light');
     }
   }, [isDark]);
