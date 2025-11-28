@@ -11,6 +11,7 @@ import MovementDetailsPage from './components/MovementDetailsPage';
 import AuthModal from './components/AuthModal';
 import CreateModal from './components/CreateModal';
 import ProfileModal from './components/ProfileModal';
+import MovementPreviewModal from './components/MovementPreviewModal';
 import axios from 'axios';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
@@ -65,6 +66,7 @@ const PlotApp = () => {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const profileDropdownRef = useRef(null);
   const [isMovementLoading, setIsMovementLoading] = useState(false);
+  const [previewMovement, setPreviewMovement] = useState(null);
   
   // WebSocket setup - get token from cookies via API call
   const [wsToken, setWsToken] = useState(null);
@@ -131,6 +133,7 @@ const PlotApp = () => {
 
   useEffect(() => {
     if (map.current) return;
+    if (!mapContainer.current) return;
     
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
@@ -180,6 +183,7 @@ const PlotApp = () => {
     );
   }, [mapReady, userLocation]);
 
+
   const handleClearSearch = useCallback(() => {
     setSearchQuery('');
     setShowSearch(false);
@@ -189,8 +193,8 @@ const PlotApp = () => {
 
   const handleRequestAddIdea = useCallback(({ longitude, latitude }) => {
     setClickedCoordinates({ longitude, latitude });
-    setCreateType('idea');
-    setShowCreateModal(true);
+        setCreateType('idea');
+        setShowCreateModal(true);
   }, []);
 
   const handleMovementSelect = async (movement) => {
@@ -401,7 +405,7 @@ const PlotApp = () => {
       </header>
 
       {showSearch && (
-        <div className="bg-white border-b border-gray-200 px-4 py-3">
+        <div className="bg-white border-b border-gray-200 px-4 py-3 relative">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -434,7 +438,7 @@ const PlotApp = () => {
       )}
 
       <div className="flex-1 relative">
-        <div ref={mapContainer} className="absolute inset-0" />
+        <div ref={mapContainer} className="absolute inset-0 z-0" />
 
         {viewMode === 'movement-details' && selectedMovement ? (
           <>
@@ -501,7 +505,7 @@ const PlotApp = () => {
             markersRef={movementMarkersRef}
             movements={filteredMovements}
             searchResults={searchResults}
-            isSearching={isSearching}
+                  isSearching={isSearching}
             searchQuery={searchQuery}
             onSearchChange={(value) => {
               setSearchQuery(value);
@@ -514,13 +518,25 @@ const PlotApp = () => {
                 setIdeas([]);
               }
             }}
-            onMovementSelect={handleMovementSelect}
-            onIdeaSelect={handleIdeaSelect}
+                  onMovementSelect={handleMovementSelect}
+                  onIdeaSelect={handleIdeaSelect}
             showSearch={showSearch}
             onClearSearch={handleClearSearch}
+            setPreviewMovement={setPreviewMovement}
           />
         )}
       </div>
+
+      {previewMovement && (
+        <MovementPreviewModal
+          movement={previewMovement}
+          onClose={() => setPreviewMovement(null)}
+          onViewFullPage={async () => {
+            setPreviewMovement(null);
+            await handleMovementSelect(previewMovement);
+          }}
+        />
+      )}
 
       {selectedIdea && (
         <IdeaModal 
@@ -571,9 +587,9 @@ const PlotApp = () => {
             setClickedCoordinates(null);
             loadMovements();
             // Reload ideas if viewing a movement
-      if (selectedMovement) {
-        loadIdeas(selectedMovement.id);
-      }
+            if (selectedMovement) {
+              loadIdeas(selectedMovement.id);
+            }
           }}
         />
       )}

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import MovementsList from './MovementsList';
 import SearchResultsPanel from './SearchResultsPanel';
-import MovementPreviewModal from './MovementPreviewModal';
 import HoverPreviewModal from './HoverPreviewModal';
 import { useMovementMarkers } from '../hooks/useMovementMarkers';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -17,10 +16,10 @@ const MovementsPage = ({
   onMovementSelect,
   onIdeaSelect,
   showSearch,
-  onClearSearch
+  onClearSearch,
+  setPreviewMovement
 }) => {
   const [hoveredItem, setHoveredItem] = useState(null);
-  const [previewMovement, setPreviewMovement] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useMovementMarkers({
@@ -78,17 +77,6 @@ const MovementsPage = ({
           )}
         </div>
       </div>
-
-      {previewMovement && (
-        <MovementPreviewModal
-          movement={previewMovement}
-          onClose={() => setPreviewMovement(null)}
-          onViewFullPage={async () => {
-            setPreviewMovement(null);
-            await onMovementSelect(previewMovement);
-          }}
-        />
-      )}
 
       <HoverPreviewModal hoveredItem={hoveredItem} />
     </>

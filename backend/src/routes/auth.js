@@ -140,44 +140,47 @@ router.post('/login', authLimiter, validateLogin, async (req, res) => {
   }
 });
 
-// Get current user
+// Get current user (optional - returns null if not authenticated)
 router.get('/me', async (req, res) => {
   try {
     // Check cookie first, then fall back to Authorization header for backward compatibility
     const token = req.cookies.authToken || req.headers.authorization?.replace('Bearer ', '');
     
     if (!token) {
-      return res.status(401).json({ 
-        error: { message: 'No token provided' }
-      });
+      // Return 200 with null user for anonymous users
+      return res.json({ user: null });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        avatar: true,
-        bio: true,
-        location: true,
-        createdAt: true
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          avatar: true,
+          bio: true,
+          location: true,
+          createdAt: true
+        }
+      });
+
+      if (!user) {
+        return res.json({ user: null });
       }
-    });
 
-    if (!user) {
-      return res.status(404).json({ 
-        error: { message: 'User not found' }
-      });
+      res.json({ user });
+    } catch (jwtError) {
+      // Invalid or expired token - treat as anonymous
+      res.json({ user: null });
     }
-
-    res.json({ user });
   } catch (error) {
     console.error('Auth verification error:', error);
-    res.status(401).json({ error: { message: 'Invalid or expired token' } });
+    // Return null user instead of error for better UX
+    res.json({ user: null });
   }
 });
 

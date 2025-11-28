@@ -136,7 +136,8 @@ const IdeaModal = ({ idea, onClose, currentUser, onSupport, socket, isConnected,
   return (
     <div className="fixed inset-0 z-50 pointer-events-none">
       <div
-        className="absolute inset-0 bg-black bg-opacity-50 pointer-events-auto"
+        className="absolute inset-0 pointer-events-auto"
+        style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
         onClick={onClose}
       />
 

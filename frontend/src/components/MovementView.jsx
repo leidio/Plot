@@ -282,7 +282,7 @@ const MovementView = ({
         </div>
       </div>
 
-      <div ref={contentRef} className="flex-1 relative pointer-events-none overflow-auto">
+      <div ref={contentRef} className="flex-1 relative pointer-events-none overflow-auto bg-transparent">
         {addIdeaMode && currentUser && (
           <div className="pointer-events-auto absolute top-4 left-1/2 transform -translate-x-1/2 bg-blue-50 border border-blue-200 rounded-lg p-3 z-10">
             <p className="text-sm text-blue-800 font-medium mb-1">

@@ -13,8 +13,20 @@ const MovementPreviewModal = ({ movement, onClose, onViewFullPage }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div 
+      className="fixed inset-0 flex items-center justify-center p-4 z-50"
+      style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+      onClick={(e) => {
+        // Close modal when clicking backdrop
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div 
+        className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="p-6">
           <div className="flex justify-between items-start mb-4">
             <h2 className="text-2xl font-semibold pr-8">{movement.name || 'Untitled Movement'}</h2>
@@ -73,7 +85,7 @@ const MovementPreviewModal = ({ movement, onClose, onViewFullPage }) => {
           <div className="flex space-x-3">
             <button
               onClick={onViewFullPage}
-              className="flex-1 bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 font-medium"
+              className="bg-green-600 text-white font-semibold px-4 py-2 rounded-lg shadow hover:bg-green-700 transition"
             >
               View Movement Page
             </button>
