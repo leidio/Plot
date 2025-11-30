@@ -21,15 +21,11 @@ const AuthModal = ({ mode, onClose, onSuccess, onSwitchMode, apiCall }) => {
 
       const response = await apiCall('post', endpoint, data);
 
-      if (response.data.token) {
-        localStorage.setItem('authToken', response.data.token);
-        if (response.data.user) {
-          onSuccess(response.data.user);
-        } else {
-          onSuccess({ id: '1', firstName: 'User', lastName: '', email });
-        }
+      // Backend sets token as httpOnly cookie, so we just need to check for user data
+      if (response.data.user) {
+        onSuccess(response.data.user);
       } else {
-        throw new Error('No token received');
+        throw new Error('Authentication failed - no user data received');
       }
     } catch (err) {
       console.error('Auth error:', err);

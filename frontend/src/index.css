@@ -1,4 +1,25 @@
 @import "tailwindcss";
+@plugin "daisyui";
+@theme {
+  /* Custom Tailwind colors - use with bg-primary, text-primary, etc. */
+  --color-primary: #16a34a;
+  --color-secondary: #2563eb;
+  --color-accent: #f59e0b;
+  
+}
+
+/* Restore cursor: pointer for buttons and links in Tailwind v4 */
+@layer base {
+  body {
+    color: rgba(0, 0, 0, 0.87);
+  }
+  
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  a {
+    cursor: pointer;
+  }
+}
 
 /* Reset default margins and padding */
 html, body {
@@ -15,10 +36,10 @@ html, body {
   overflow: hidden;
 }
 
-/* Ensure map container has dimensions */
+/* Mapbox map styling - Mapbox creates the .mapboxgl-map element */
 .mapboxgl-map {
-  width: 100% !important;
-  height: 100% !important;
+  width: 100%;
+  height: 100%;
 }
 
 /* Mapbox marker fix */
@@ -34,8 +55,8 @@ html, body {
 
 .movement-marker:hover,
 .idea-marker:hover {
-  transform: scale(1.2) !important;
-  z-index: 1000 !important;
+  transform: scale(1.2);
+  z-index: 1000;
 }
 
 /* Mapbox popup styling */

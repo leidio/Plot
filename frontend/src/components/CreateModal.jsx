@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import mapboxgl from 'mapbox-gl';
+import { X, Image as ImageIcon, Upload } from 'lucide-react';
 
 const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, apiCall }) => {
   const [formData, setFormData] = useState({
@@ -11,6 +12,8 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
     address: '',
     fundingGoal: ''
   });
+  const [images, setImages] = useState([]);
+  const [coverImage, setCoverImage] = useState(null);
   const [locationSuggestions, setLocationSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -20,6 +23,8 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
   const locationInputRef = useRef(null);
   const suggestionsRef = useRef(null);
   const debounceTimerRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const coverImageInputRef = useRef(null);
 
   useEffect(() => {
     if (initialCoordinates && type === 'idea') {
@@ -226,7 +231,9 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
           latitude,
           longitude,
           address: formData.address || reverseGeocodedAddress || '',
-          fundingGoal: fundingGoalInCents
+          fundingGoal: fundingGoalInCents,
+          coverImage: coverImage || null,
+          images: images
         });
 
         if (response.data.idea) {
@@ -257,6 +264,51 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     setError('');
+  };
+
+  const convertToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  const handleImageUpload = async (e, isCover = false) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    // Limit file size to 10MB
+    const maxSize = 10 * 1024 * 1024;
+    const validFiles = files.filter(file => {
+      if (file.size > maxSize) {
+        setError(`File ${file.name} is too large. Maximum size is 10MB.`);
+        return false;
+      }
+      return true;
+    });
+
+    try {
+      if (isCover) {
+        const base64 = await convertToBase64(validFiles[0]);
+        setCoverImage(base64);
+      } else {
+        const base64Images = await Promise.all(validFiles.map(convertToBase64));
+        setImages(prev => [...prev, ...base64Images]);
+      }
+    } catch (error) {
+      console.error('Error converting image:', error);
+      setError('Failed to process image. Please try again.');
+    }
+  };
+
+  const removeImage = (index) => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const removeCoverImage = () => {
+    setCoverImage(null);
   };
 
   return (
@@ -352,6 +404,90 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
                     onChange={(e) => handleChange('fundingGoal', e.target.value)}
                     className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
+                </div>
+              </div>
+              
+              {/* Image Upload Section */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Cover Image (optional)
+                  </label>
+                  <input
+                    ref={coverImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleImageUpload(e, true)}
+                    className="hidden"
+                  />
+                  {coverImage ? (
+                    <div className="relative">
+                      <img
+                        src={coverImage}
+                        alt="Cover preview"
+                        className="w-full h-48 object-cover rounded-lg border border-gray-300"
+                      />
+                      <button
+                        type="button"
+                        onClick={removeCoverImage}
+                        className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => coverImageInputRef.current?.click()}
+                      className="w-full border-2 border-dashed border-gray-300 rounded-lg p-6 hover:border-green-500 transition-colors flex flex-col items-center justify-center gap-2"
+                    >
+                      <Upload className="w-6 h-6 text-gray-400" />
+                      <span className="text-sm text-gray-600">Click to upload cover image</span>
+                    </button>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Additional Images (optional)
+                  </label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleImageUpload(e, false)}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-green-500 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <ImageIcon className="w-5 h-5 text-gray-400" />
+                    <span className="text-sm text-gray-600">Add images</span>
+                  </button>
+                  
+                  {images.length > 0 && (
+                    <div className="mt-4 grid grid-cols-3 gap-4">
+                      {images.map((image, index) => (
+                        <div key={index} className="relative">
+                          <img
+                            src={image}
+                            alt={`Upload ${index + 1}`}
+                            className="w-full h-32 object-cover rounded-lg border border-gray-300"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeImage(index)}
+                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </>

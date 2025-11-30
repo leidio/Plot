@@ -17,7 +17,6 @@ const MovementPreviewModal = ({ movement, onClose, onViewFullPage }) => {
       className="fixed inset-0 flex items-center justify-center p-4 z-50"
       style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
       onClick={(e) => {
-        // Close modal when clicking backdrop
         if (e.target === e.currentTarget) {
           onClose();
         }

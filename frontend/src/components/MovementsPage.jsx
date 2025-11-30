@@ -34,10 +34,8 @@ const MovementsPage = ({
 
   return (
     <>
-      <div className="absolute inset-0 pointer-events-none flex">
-        <div className="flex-1" />
-        <div className={`pointer-events-auto bg-white border-l border-gray-200 overflow-y-auto transition-all duration-300 ${sidebarCollapsed ? 'w-14' : 'w-96'}`}>
-          <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className={`absolute right-0 top-0 bottom-0 pointer-events-auto bg-white border-l border-gray-200 flex flex-col transition-all duration-300 ${sidebarCollapsed ? 'w-14' : 'w-96'}`}>
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
             {!sidebarCollapsed && (
               <h2 className="text-lg font-semibold text-gray-800">
                 {searchQuery.trim() ? 'Search Results' : 'Movements'}
@@ -56,7 +54,7 @@ const MovementsPage = ({
             </button>
           </div>
           {!sidebarCollapsed && (
-            <>
+            <div className="flex-1 overflow-y-auto">
               {searchQuery.trim() ? (
                 <SearchResultsPanel
                   searchQuery={searchQuery}
@@ -73,9 +71,8 @@ const MovementsPage = ({
                   onTagClick={(tag) => onSearchChange(tag)}
                 />
               )}
-            </>
+            </div>
           )}
-        </div>
       </div>
 
       <HoverPreviewModal hoveredItem={hoveredItem} />

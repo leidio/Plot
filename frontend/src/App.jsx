@@ -437,7 +437,7 @@ const PlotApp = () => {
         </div>
       )}
 
-      <div className="flex-1 relative">
+      <div className="flex-1 relative overflow-hidden">
         <div ref={mapContainer} className="absolute inset-0 z-0" />
 
         {viewMode === 'movement-details' && selectedMovement ? (
@@ -556,6 +556,15 @@ const PlotApp = () => {
           socket={socket}
           isConnected={isConnected}
           apiCall={apiCall}
+          onIdeaUpdate={(updatedIdea) => {
+            setSelectedIdea(updatedIdea);
+            // Also update in ideas list if viewing movement details
+            if (selectedMovement) {
+              setIdeas(prevIdeas =>
+                prevIdeas.map(i => i.id === updatedIdea.id ? updatedIdea : i)
+              );
+            }
+          }}
         />
       )}
 

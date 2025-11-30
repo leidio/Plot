@@ -285,6 +285,100 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
+// Update idea (only creator can update)
+router.patch('/:id', authenticateToken, async (req, res) => {
+  try {
+    const ideaId = req.params.id;
+    const { images, coverImage } = req.body;
+
+    // Check if idea exists and user is the creator
+    const idea = await prisma.idea.findUnique({
+      where: { id: ideaId },
+      select: { creatorId: true }
+    });
+
+    if (!idea) {
+      return res.status(404).json({ error: { message: 'Idea not found' } });
+    }
+
+    if (idea.creatorId !== req.user.userId) {
+      return res.status(403).json({ error: { message: 'Only the idea creator can update it' } });
+    }
+
+    // Build update data
+    const updateData = {};
+    if (images !== undefined) updateData.images = images;
+    if (coverImage !== undefined) updateData.coverImage = coverImage;
+
+    const updatedIdea = await prisma.idea.update({
+      where: { id: ideaId },
+      data: updateData,
+      include: {
+        creator: {
+          select: { id: true, firstName: true, lastName: true, avatar: true, bio: true }
+        },
+        movement: {
+          select: { id: true, name: true, ownerId: true }
+        },
+        supporters: {
+          take: 20,
+          include: {
+            user: {
+              select: { id: true, firstName: true, lastName: true, avatar: true }
+            }
+          },
+          orderBy: { createdAt: 'desc' }
+        },
+        tasks: {
+          orderBy: { order: 'asc' },
+          include: {
+            claimedUser: {
+              select: { id: true, firstName: true, lastName: true, avatar: true }
+            }
+          }
+        },
+        needs: true,
+        donations: {
+          where: { isAnonymous: false },
+          take: 20,
+          include: {
+            user: {
+              select: { id: true, firstName: true, lastName: true, avatar: true }
+            }
+          },
+          orderBy: { createdAt: 'desc' }
+        },
+        comments: {
+          take: 50,
+          include: {
+            user: {
+              select: { id: true, firstName: true, lastName: true, avatar: true }
+            }
+          },
+          orderBy: { createdAt: 'desc' }
+        },
+        _count: {
+          select: { supporters: true, donations: true, comments: true }
+        }
+      }
+    });
+
+    // Check if current user is supporting this idea
+    const supportCount = await prisma.ideaSupport.count({
+      where: {
+        userId: req.user.userId,
+        ideaId: updatedIdea.id
+      }
+    });
+    const isSupporting = supportCount > 0;
+
+    res.json({ idea: updatedIdea, isSupporting });
+  } catch (error) {
+    console.error('Error updating idea:', error);
+    res.status(500).json({ error: { message: 'Failed to update idea' } });
+  }
+});
+
 // Support idea
 router.post('/:id/support', authenticateToken, async (req, res) => {
   try {
