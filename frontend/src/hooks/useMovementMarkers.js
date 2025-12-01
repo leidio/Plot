@@ -320,18 +320,42 @@ export const useMovementMarkers = ({
     };
 
     const renderWhenReady = () => {
-      if (mapInstance.isStyleLoaded?.()) {
+      // Try to render if all conditions are met
+      const tryRender = () => {
+        if (isCancelled) return false;
+        if (!mapInstance.isStyleLoaded?.()) return false;
         renderClusters();
-      } else {
-        const handleStyleData = () => {
-          if (mapInstance.isStyleLoaded?.()) {
-            mapInstance.off('styledata', handleStyleData);
-            renderClusters();
-          }
-        };
-        mapInstance.on('styledata', handleStyleData);
-        detachHandlers.push(() => mapInstance.off('styledata', handleStyleData));
+        return true;
+      };
+
+      // If style is already loaded, render immediately
+      if (mapInstance.isStyleLoaded?.()) {
+        tryRender();
+        return;
       }
+
+      // Otherwise, wait for style to load
+      // Use 'load' event (fires once when map is ready) and 'styledata' (fires on style changes)
+      const handleLoad = () => {
+        if (tryRender()) {
+          mapInstance.off('load', handleLoad);
+          mapInstance.off('styledata', handleStyleData);
+        }
+      };
+
+      const handleStyleData = () => {
+        if (tryRender()) {
+          mapInstance.off('load', handleLoad);
+          mapInstance.off('styledata', handleStyleData);
+        }
+      };
+
+      mapInstance.on('load', handleLoad);
+      mapInstance.on('styledata', handleStyleData);
+      detachHandlers.push(
+        () => mapInstance.off('load', handleLoad),
+        () => mapInstance.off('styledata', handleStyleData)
+      );
     };
 
     renderWhenReady();

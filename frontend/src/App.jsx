@@ -142,6 +142,11 @@ const PlotApp = () => {
       zoom: 12
     });
 
+    // TEMP: expose map for debugging
+    if (typeof window !== 'undefined') {
+      window._map = map.current;
+    }
+
     map.current.addControl(new mapboxgl.NavigationControl(), 'bottom-left');
 
     const handleLoad = () => setMapReady(true);
