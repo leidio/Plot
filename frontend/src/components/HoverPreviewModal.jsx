@@ -1,7 +1,10 @@
 import React from 'react';
 import { Users, MapPin, Lightbulb, Heart, DollarSign } from 'lucide-react';
+import { useTheme } from '../hooks/useTheme';
 
 const HoverPreviewModal = ({ hoveredItem }) => {
+  const { isDark } = useTheme();
+  
   if (!hoveredItem || !hoveredItem.position) {
     return null;
   }
@@ -31,10 +34,10 @@ const HoverPreviewModal = ({ hoveredItem }) => {
     const truncatedDescription = description.length > 100 ? `${description.substring(0, 100)}...` : description;
 
     return (
-      <div style={style} className="bg-white rounded-lg shadow-lg border border-gray-200 p-3 max-w-xs">
-        <h3 className="font-bold text-gray-900 text-sm mb-1 truncate">{name}</h3>
+      <div style={style} className={`${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg shadow-lg border p-3 max-w-xs`}>
+        <h3 className={`font-bold text-sm mb-1 truncate ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{name}</h3>
         <p
-          className="text-xs text-gray-600 mb-2"
+          className={`text-xs mb-2 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}
           style={{
             display: '-webkit-box',
             WebkitLineClamp: 2,
@@ -45,7 +48,7 @@ const HoverPreviewModal = ({ hoveredItem }) => {
         >
           {truncatedDescription}
         </p>
-        <div className="flex items-center gap-3 text-xs text-gray-500">
+        <div className={`flex items-center gap-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
           <div className="flex items-center gap-1">
             <Users className="w-3 h-3" />
             <span>{item._count?.members || 0} members</span>
@@ -68,10 +71,10 @@ const HoverPreviewModal = ({ hoveredItem }) => {
     const truncatedDescription = description.length > 100 ? `${description.substring(0, 100)}...` : description;
 
     return (
-      <div style={style} className="bg-white rounded-lg shadow-lg border border-gray-200 p-3 max-w-xs">
-        <h3 className="font-bold text-gray-900 text-sm mb-1 truncate">{title}</h3>
+      <div style={style} className={`${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg shadow-lg border p-3 max-w-xs`}>
+        <h3 className={`font-bold text-sm mb-1 truncate ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{title}</h3>
         <p
-          className="text-xs text-gray-600 mb-2"
+          className={`text-xs mb-2 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}
           style={{
             display: '-webkit-box',
             WebkitLineClamp: 2,
@@ -88,7 +91,7 @@ const HoverPreviewModal = ({ hoveredItem }) => {
             <span className="truncate">{movementName}</span>
           </div>
         </div>
-        <div className="flex items-center gap-3 text-xs text-gray-500">
+        <div className={`flex items-center gap-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
           <div className="flex items-center gap-1">
             <Heart className="w-3 h-3" />
             <span>{item._count?.supporters || 0} supporters</span>

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { useTheme } from '../hooks/useTheme';
 
 const AuthModal = ({ mode, onClose, onSuccess, onSwitchMode, apiCall }) => {
+  const { isDark } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -48,8 +50,8 @@ const AuthModal = ({ mode, onClose, onSuccess, onSwitchMode, apiCall }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg max-w-md w-full p-6">
-        <h2 className="text-2xl font-bold mb-4">{mode === 'login' ? 'Sign In' : 'Create Account'}</h2>
+      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} rounded-lg max-w-md w-full p-6`}>
+        <h2 className={`text-2xl font-bold mb-4 ${isDark ? 'text-gray-100' : ''}`}>{mode === 'login' ? 'Sign In' : 'Create Account'}</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           {mode === 'register' && (
             <>
@@ -58,7 +60,7 @@ const AuthModal = ({ mode, onClose, onSuccess, onSwitchMode, apiCall }) => {
                 placeholder="First Name *"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
                 required
               />
               <input
@@ -66,7 +68,7 @@ const AuthModal = ({ mode, onClose, onSuccess, onSwitchMode, apiCall }) => {
                 placeholder="Last Name *"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
                 required
               />
             </>
@@ -76,7 +78,7 @@ const AuthModal = ({ mode, onClose, onSuccess, onSwitchMode, apiCall }) => {
             placeholder="Email *"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+            className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
             required
           />
           <input
@@ -84,11 +86,11 @@ const AuthModal = ({ mode, onClose, onSuccess, onSwitchMode, apiCall }) => {
             placeholder="Password *"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+            className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
             required
           />
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+            <div className={`${isDark ? 'bg-red-900 border-red-700 text-red-200' : 'bg-red-50 border-red-200 text-red-700'} border px-4 py-3 rounded-lg text-sm`}>
               {error}
             </div>
           )}
@@ -104,7 +106,7 @@ const AuthModal = ({ mode, onClose, onSuccess, onSwitchMode, apiCall }) => {
           <button
             onClick={onClose}
             disabled={loading}
-            className="text-gray-600 hover:text-gray-800 disabled:opacity-50 mr-4"
+            className={`${isDark ? 'text-gray-400 hover:text-gray-300' : 'text-gray-600 hover:text-gray-800'} disabled:opacity-50 mr-4`}
           >
             Cancel
           </button>

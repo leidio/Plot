@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import mapboxgl from 'mapbox-gl';
 import { X, Image as ImageIcon, Upload } from 'lucide-react';
+import { useTheme } from '../hooks/useTheme';
 
 const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, apiCall }) => {
+  const { isDark } = useTheme();
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -313,8 +315,8 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
-        <h2 className="text-2xl font-bold mb-4">
+      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} rounded-lg max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto`}>
+        <h2 className={`text-2xl font-bold mb-4 ${isDark ? 'text-gray-100' : ''}`}>
           Create {type === 'movement' ? 'Movement' : 'Idea'}
         </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -324,7 +326,7 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
               placeholder={type === 'movement' ? 'Movement Name *' : 'Idea Title'}
               value={formData.name}
               onChange={(e) => handleChange('name', e.target.value)}
-              className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+              className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
               required
             />
           </div>
@@ -334,7 +336,7 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
               rows={4}
               value={formData.description}
               onChange={(e) => handleChange('description', e.target.value)}
-              className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+              className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
               required
             />
           </div>
@@ -346,24 +348,24 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
                 value={formData.location}
                 onChange={(e) => handleLocationChange(e.target.value)}
                 onFocus={() => formData.location && setShowSuggestions(true)}
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
                 required
                 autoComplete="off"
               />
               {showSuggestions && locationSuggestions.length > 0 && (
                 <div
                   ref={suggestionsRef}
-                  className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto"
+                  className={`absolute z-50 w-full mt-1 ${isDark ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} border rounded-lg shadow-lg max-h-60 overflow-y-auto`}
                 >
                   {locationSuggestions.map((feature, index) => (
                     <button
                       key={feature.id || index}
                       type="button"
                       onClick={() => handleLocationSelect(feature)}
-                      className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
+                      className={`w-full text-left px-4 py-3 ${isDark ? 'hover:bg-gray-600 border-gray-600 text-gray-100' : 'hover:bg-gray-50 border-gray-100'} border-b last:border-b-0 transition-colors`}
                     >
-                      <div className="font-medium text-gray-900">{feature.text}</div>
-                      <div className="text-sm text-gray-500 mt-0.5">
+                      <div className={`font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{feature.text}</div>
+                      <div className={`text-sm mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                         {feature.place_name?.replace(feature.text + ', ', '')}
                       </div>
                     </button>
@@ -371,7 +373,7 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
                 </div>
               )}
               {selectedLocation && (
-                <p className="text-xs text-gray-500 mt-1">
+                <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                   Selected: {selectedLocation.city}, {selectedLocation.state}
                 </p>
               )}
@@ -379,11 +381,11 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
           ) : (
             <>
               {initialCoordinates && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-                  <p className="text-sm text-blue-800">
+                <div className={`${isDark ? 'bg-blue-900 border-blue-700' : 'bg-blue-50 border-blue-200'} border rounded-lg p-3 mb-4`}>
+                  <p className={`text-sm ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>
                     <strong>Location:</strong> {reverseGeocodedAddress || `${initialCoordinates.latitude.toFixed(4)}, ${initialCoordinates.longitude.toFixed(4)}`}
                   </p>
-                  <p className="text-xs text-blue-600 mt-1">Click on the map to change location</p>
+                  <p className={`text-xs mt-1 ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>Click on the map to change location</p>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-4">
@@ -393,7 +395,7 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
                     placeholder="Address (optional)"
                     value={formData.address}
                     onChange={(e) => handleChange('address', e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
                   />
                 </div>
                 <div>
@@ -402,7 +404,7 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
                     placeholder="Funding Goal ($)"
                     value={formData.fundingGoal}
                     onChange={(e) => handleChange('fundingGoal', e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
                   />
                 </div>
               </div>
@@ -410,7 +412,7 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
               {/* Image Upload Section */}
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                     Cover Image (optional)
                   </label>
                   <input
@@ -425,7 +427,7 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
                       <img
                         src={coverImage}
                         alt="Cover preview"
-                        className="w-full h-48 object-cover rounded-lg border border-gray-300"
+                        className={`w-full h-48 object-cover rounded-lg border ${isDark ? 'border-gray-600' : 'border-gray-300'}`}
                       />
                       <button
                         type="button"
@@ -439,16 +441,16 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
                     <button
                       type="button"
                       onClick={() => coverImageInputRef.current?.click()}
-                      className="w-full border-2 border-dashed border-gray-300 rounded-lg p-6 hover:border-green-500 transition-colors flex flex-col items-center justify-center gap-2"
+                      className={`w-full border-2 border-dashed ${isDark ? 'border-gray-600 hover:border-green-500' : 'border-gray-300 hover:border-green-500'} rounded-lg p-6 transition-colors flex flex-col items-center justify-center gap-2`}
                     >
-                      <Upload className="w-6 h-6 text-gray-400" />
-                      <span className="text-sm text-gray-600">Click to upload cover image</span>
+                      <Upload className={`w-6 h-6 ${isDark ? 'text-gray-400' : 'text-gray-400'}`} />
+                      <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Click to upload cover image</span>
                     </button>
                   )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                     Additional Images (optional)
                   </label>
                   <input
@@ -462,10 +464,10 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-green-500 transition-colors flex items-center justify-center gap-2"
+                    className={`w-full border-2 border-dashed ${isDark ? 'border-gray-600 hover:border-green-500' : 'border-gray-300 hover:border-green-500'} rounded-lg p-4 transition-colors flex items-center justify-center gap-2`}
                   >
-                    <ImageIcon className="w-5 h-5 text-gray-400" />
-                    <span className="text-sm text-gray-600">Add images</span>
+                    <ImageIcon className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-400'}`} />
+                    <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Add images</span>
                   </button>
                   
                   {images.length > 0 && (
@@ -475,7 +477,7 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
                           <img
                             src={image}
                             alt={`Upload ${index + 1}`}
-                            className="w-full h-32 object-cover rounded-lg border border-gray-300"
+                            className={`w-full h-32 object-cover rounded-lg border ${isDark ? 'border-gray-600' : 'border-gray-300'}`}
                           />
                           <button
                             type="button"
@@ -499,13 +501,13 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
                 placeholder="Tags (comma-separated, optional)"
                 value={formData.tags}
                 onChange={(e) => handleChange('tags', e.target.value)}
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
               />
-              <p className="text-xs text-gray-500 mt-1">e.g., sustainability, climate, food justice</p>
+              <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>e.g., sustainability, climate, food justice</p>
             </div>
           )}
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+            <div className={`${isDark ? 'bg-red-900 border-red-700 text-red-200' : 'bg-red-50 border-red-200 text-red-700'} border px-4 py-3 rounded-lg text-sm`}>
               {error}
             </div>
           )}
@@ -521,7 +523,7 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="flex-1 border border-gray-300 py-2 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              className={`flex-1 border ${isDark ? 'border-gray-600 hover:bg-gray-700 text-gray-200' : 'border-gray-300 hover:bg-gray-50'} py-2 rounded-lg disabled:opacity-50`}
             >
               Cancel
             </button>

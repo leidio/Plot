@@ -1,12 +1,17 @@
 @import "tailwindcss";
 @plugin "daisyui";
+
+
+/*
 @theme {
-  /* Custom Tailwind colors - use with bg-primary, text-primary, etc. */
+  /* Custom Tailwind colors - use with bg-primary, text-primary, etc. 
   --color-primary: #16a34a;
   --color-secondary: #2563eb;
   --color-accent: #f59e0b;
-  
 }
+*/
+
+
 
 /* Restore cursor: pointer for buttons and links in Tailwind v4 */
 @layer base {
@@ -14,11 +19,49 @@
     color: rgba(0, 0, 0, 0.87);
   }
   
+  [data-theme="dark"] body {
+    color: rgba(255, 255, 255, 0.87);
+  }
+  
   button:not(:disabled),
   [role="button"]:not(:disabled),
   a {
     cursor: pointer;
   }
+}
+
+/* Button text color - overrides DaisyUI defaults */
+.btn {
+  color: var(--color-plot-dark);
+}
+
+/* DaisyUI theme color overrides - using correct variable names for DaisyUI 5.5.5 */
+html[data-theme="light"] {
+  --color-primary: #85ffd0;
+  --color-secondary: #0a5cff;
+  --color-accent: #70c9f5;
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(98% 0 0);
+  --color-base-300: oklch(95% 0 0);
+  --color-base-content: oklch(21% 0.006 285.885);
+  --color-primary-content: oklch(93% 0.034 272.788);
+  --color-secondary-content: oklch(94% 0.028 342.258);
+  --color-accent-content: oklch(38% 0.063 188.416);
+  --color-plot-dark: #044e31;
+}
+
+html[data-theme="dark"] {
+  --color-primary: #85ffd0;
+  --color-secondary: #0a5cff;
+  --color-accent: #70c9f5;
+  --color-base-100: oklch(31 41 55);
+  --color-base-200: oklch(17 24 39);
+  --color-base-300: oklch(15 23 42);
+  --color-base-content: oklch(249 250 251);
+  --color-primary-content: oklch(93% 0.034 272.788);
+  --color-secondary-content: oklch(94% 0.028 342.258);
+  --color-accent-content: oklch(38% 0.063 188.416);
+  --color-plot-dark: rgba(255, 255, 255, 0.87);
 }
 
 /* Reset default margins and padding */
@@ -69,4 +112,23 @@ html, body {
 .mapboxgl-popup-close-button {
   font-size: 20px;
   padding: 4px 8px;
+}
+
+/* Dark mode background fixes - ensure backgrounds change properly */
+html[data-theme="dark"] header,
+html[data-theme="dark"] .bg-white {
+  background-color: rgb(31 41 55); /* gray-800 */
+}
+
+html[data-theme="dark"] .bg-gray-50 {
+  background-color: rgb(17 24 39); /* gray-900 */
+}
+
+html[data-theme="dark"] .bg-gray-100 {
+  background-color: rgb(55 65 81); /* gray-700 */
+}
+
+html[data-theme="dark"] header,
+html[data-theme="dark"] .border-gray-200 {
+  border-color: rgb(55 65 81); /* gray-700 */
 }

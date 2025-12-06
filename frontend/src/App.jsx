@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { Search, Plus, Heart, Share2, DollarSign, Users, MapPin, Filter, Bell, User, X, Check, ChevronUp, ChevronDown, Lightbulb, Star, LogOut, Settings, Trash2, Mail, Lock, Moon, Sun, MessageSquare, Activity } from 'lucide-react';
+import { Heart, Share2, DollarSign, Users, MapPin, Filter, X, Check, ChevronUp, ChevronDown, Lightbulb, Star, Settings, Trash2, Mail, Lock, MessageSquare, Activity } from 'lucide-react';
 import { useTheme } from './hooks/useTheme';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useMovements } from './hooks/useMovements';
@@ -12,6 +12,7 @@ import AuthModal from './components/AuthModal';
 import CreateModal from './components/CreateModal';
 import ProfileModal from './components/ProfileModal';
 import MovementPreviewModal from './components/MovementPreviewModal';
+import Header from './components/Header';
 import axios from 'axios';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
@@ -196,6 +197,30 @@ const PlotApp = () => {
     loadMovements();
   }, [setSearchQuery, setShowSearch, setWasSearching, loadMovements]);
 
+  const handleBackToMovements = useCallback(() => {
+    setViewMode('movements');
+    setSelectedMovement(null);
+    setIdeas([]);
+    // Restore search bar and results if we were searching before
+    if (wasSearching) {
+      setShowSearch(true);
+      setWasSearching(false);
+    }
+    if (map.current) {
+      map.current.flyTo({ center: [-98.5795, 39.8283], zoom: 3.5 });
+    }
+  }, [wasSearching, setIdeas]);
+
+  const handleCreateClick = useCallback(() => {
+    setShowCreateModal(true);
+    setCreateType('movement');
+  }, []);
+
+  const handleProfileClick = useCallback(() => {
+    setShowProfileModal(true);
+    setShowProfileDropdown(false);
+  }, []);
+
   const handleRequestAddIdea = useCallback(({ longitude, latitude }) => {
     setClickedCoordinates({ longitude, latitude });
         setCreateType('idea');
@@ -307,110 +332,27 @@ const PlotApp = () => {
   const filteredMovements = movements;
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between z-10">
-        <div className="flex items-center space-x-4">
-          <h1 className="text-2xl font-bold text-green-600">Plot</h1>
-          {viewMode === 'movement-details' && selectedMovement && (
-            <>
-              <button 
-                onClick={() => {
-                  setViewMode('movements');
-                  setSelectedMovement(null);
-                  setIdeas([]);
-                  // Restore search bar and results if we were searching before
-                  if (wasSearching) {
-                    setShowSearch(true);
-                    setWasSearching(false);
-                  }
-                  if (map.current) {
-                    map.current.flyTo({ center: [-98.5795, 39.8283], zoom: 3.5 });
-                  }
-                }}
-                className="text-sm text-gray-500 hover:text-gray-700"
-              >
-                ← All Movements
-              </button>
-              <span className="text-gray-300">|</span>
-              <span className="font-medium">{selectedMovement.name}</span>
-            </>
-          )}
-        </div>
-        
-        <div className="flex items-center space-x-3">
-          <button 
-            onClick={toggleTheme}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-            aria-label="Toggle theme"
-          >
-            {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </button>
-          <button 
-            onClick={() => setShowSearch(!showSearch)}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-          >
-            <Search className="w-5 h-5" />
-          </button>
-          
-          {currentUser ? (
-            <>
-              <button className="p-2 hover:bg-gray-100 rounded-lg relative">
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
-              <button 
-                onClick={() => {
-                  setShowCreateModal(true);
-                  setCreateType('movement');
-                }}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center space-x-2"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Create</span>
-              </button>
-              <div className="relative" ref={profileDropdownRef}>
-                <button 
-                  onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-                  className="p-2 hover:bg-gray-100 rounded-lg relative"
-                >
-                  <User className="w-5 h-5" />
-                </button>
-                {showProfileDropdown && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                    <button
-                      onClick={() => {
-                        setShowProfileModal(true);
-                        setShowProfileDropdown(false);
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
-                    >
-                      <User className="w-4 h-4" />
-                      <span>Profile</span>
-                    </button>
-                    <button
-                      onClick={handleSignOut}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      <span>Sign Out</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <button 
-              onClick={() => setShowAuthModal(true)}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
-            >
-              Sign In
-            </button>
-          )}
-        </div>
-      </header>
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+      <Header
+        isDark={isDark}
+        toggleTheme={toggleTheme}
+        viewMode={viewMode}
+        selectedMovement={selectedMovement}
+        onBackToMovements={handleBackToMovements}
+        showSearch={showSearch}
+        onToggleSearch={() => setShowSearch(!showSearch)}
+        currentUser={currentUser}
+        onCreateClick={handleCreateClick}
+        showProfileDropdown={showProfileDropdown}
+        onToggleProfileDropdown={() => setShowProfileDropdown(!showProfileDropdown)}
+        profileDropdownRef={profileDropdownRef}
+        onProfileClick={handleProfileClick}
+        onSignOut={handleSignOut}
+        onSignInClick={() => setShowAuthModal(true)}
+      />
 
       {showSearch && (
-        <div className="bg-white border-b border-gray-200 px-4 py-3 relative">
+        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 relative">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -421,6 +363,7 @@ const PlotApp = () => {
                 setIdeas([]);
               }
             }}
+            className="relative"
           >
             <input
               type="text"
@@ -435,9 +378,17 @@ const PlotApp = () => {
                   setIdeas([]);
                 }
               }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
               autoFocus
             />
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+              aria-label="Close search"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </form>
         </div>
       )}
@@ -448,7 +399,7 @@ const PlotApp = () => {
         {viewMode === 'movement-details' && selectedMovement ? (
           <>
             {isMovementLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white/70 backdrop-blur-sm z-10">
+              <div className="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm z-10">
                 <div className="flex flex-col items-center space-y-3">
                   <div className="w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
                   <p className="text-sm text-gray-600">Loading movement details…</p>
