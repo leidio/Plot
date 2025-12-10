@@ -30,14 +30,10 @@
   }
 }
 
-/* Button text color - overrides DaisyUI defaults */
-.btn {
-  color: var(--color-plot-dark);
-}
-
 /* DaisyUI theme color overrides - using correct variable names for DaisyUI 5.5.5 */
 html[data-theme="light"] {
   --color-primary: #85ffd0;
+  --color-primary-dark: #044e31;
   --color-secondary: #0a5cff;
   --color-accent: #70c9f5;
   --color-base-100: oklch(100% 0 0);
@@ -48,10 +44,12 @@ html[data-theme="light"] {
   --color-secondary-content: oklch(94% 0.028 342.258);
   --color-accent-content: oklch(38% 0.063 188.416);
   --color-plot-dark: #044e31;
+  .btn {color: var(--color-plot-dark);}
 }
 
 html[data-theme="dark"] {
   --color-primary: #85ffd0;
+  --color-primary-dark: #044e31;
   --color-secondary: #0a5cff;
   --color-accent: #70c9f5;
   --color-base-100: oklch(31 41 55);
@@ -62,21 +60,26 @@ html[data-theme="dark"] {
   --color-secondary-content: oklch(94% 0.028 342.258);
   --color-accent-content: oklch(38% 0.063 188.416);
   --color-plot-dark: rgba(255, 255, 255, 0.87);
+  .btn {color: var(--color-primary-dark);}
 }
+
 
 /* Reset default margins and padding */
 html, body {
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100%;
+  height: 100vh;
   overflow: hidden;
 }
 
 #root {
   width: 100%;
-  height: 100%;
+  height: 100vh;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
 }
 
 /* Mapbox map styling - Mapbox creates the .mapboxgl-map element */

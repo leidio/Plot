@@ -21,7 +21,7 @@ const MovementsPage = ({
   setPreviewMovement
 }) => {
   const [hoveredItem, setHoveredItem] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const { isDark } = useTheme();
 
   useMovementMarkers({

@@ -323,18 +323,23 @@ export const useMovementMarkers = ({
       // Try to render if all conditions are met
       const tryRender = () => {
         if (isCancelled) return false;
-        if (!mapInstance.isStyleLoaded?.()) return false;
-        renderClusters();
-        return true;
+        try {
+          // Try to render - if style isn't ready, it will fail gracefully
+          renderClusters();
+          return true;
+        } catch (error) {
+          // If rendering fails, style might not be ready yet
+          console.warn('[useMovementMarkers] Style not ready, will retry:', error);
+          return false;
+        }
       };
 
-      // If style is already loaded, render immediately
-      if (mapInstance.isStyleLoaded?.()) {
-        tryRender();
+      // Try to render immediately
+      if (tryRender()) {
         return;
       }
 
-      // Otherwise, wait for style to load
+      // If immediate render failed, wait for style to load
       // Use 'load' event (fires once when map is ready) and 'styledata' (fires on style changes)
       const handleLoad = () => {
         if (tryRender()) {

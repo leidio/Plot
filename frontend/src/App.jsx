@@ -38,6 +38,7 @@ const apiCall = async (method, endpoint, data = null) => {
 const PlotApp = () => {
   const mapContainer = useRef(null);
   const map = useRef(null);
+  const headerRef = useRef(null);
   const { isDark, toggleTheme } = useTheme();
   const [currentUser, setCurrentUser] = useState(null);
   const [viewMode, setViewMode] = useState('movements');
@@ -136,9 +137,13 @@ const PlotApp = () => {
     if (map.current) return;
     if (!mapContainer.current) return;
     
+    const initialStyle = isDark 
+      ? 'mapbox://styles/mapbox/dark-v11' 
+      : 'mapbox://styles/mapbox/streets-v12';
+    
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
+      style: initialStyle,
       center: [-90.0715, 29.9511], // Default to New Orleans
       zoom: 12
     });
@@ -158,7 +163,102 @@ const PlotApp = () => {
         map.current.off('load', handleLoad);
       }
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // only once; initialStyle uses captured isDark
+
+  // Update map style when theme changes
+  useEffect(() => {
+    if (!map.current) return;
+    
+    const newStyle = isDark 
+      ? 'mapbox://styles/mapbox/dark-v11' 
+      : 'mapbox://styles/mapbox/streets-v12';
+    
+    // setStyle doesn't return a Promise in this version of Mapbox GL JS
+    try {
+      map.current.setStyle(newStyle);
+      // Resize after style loads to ensure proper rendering
+      map.current.once('styledata', () => {
+        if (map.current) {
+          map.current.resize();
+        }
+      });
+    } catch (err) {
+      console.error('Error updating map style:', err);
+    }
+  }, [isDark, mapReady]);
+
+  // Resize map when layout changes (e.g., when header height changes)
+  useEffect(() => {
+    if (map.current && mapReady) {
+      // Use requestAnimationFrame to ensure DOM has updated
+      const resizeMap = () => {
+        if (map.current) {
+          map.current.resize();
+        }
+      };
+      requestAnimationFrame(() => {
+        requestAnimationFrame(resizeMap);
+      });
+    }
+  }, [viewMode, mapReady, searchQuery]);
+
+  // Also resize when window resizes or layout changes
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    
+    const handleResize = () => {
+      if (map.current) {
+        map.current.resize();
+      }
+    };
+    
+    // Resize on window resize
+    window.addEventListener('resize', handleResize);
+    
+    // Also resize after a short delay to catch layout changes
+    const timer = setTimeout(handleResize, 100);
+    
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timer);
+    };
+  }, [mapReady]);
+
+  // Set map container height explicitly based on available space
+  useEffect(() => {
+    const updateMapHeight = () => {
+      if (headerRef.current && mapContainer.current?.parentElement) {
+        const headerHeight = headerRef.current.offsetHeight;
+        const searchBarHeight = viewMode !== 'movements' && showSearch 
+          ? document.querySelector('[data-search-bar]')?.offsetHeight || 0 
+          : 0;
+        const availableHeight = window.innerHeight - headerHeight - searchBarHeight;
+        mapContainer.current.parentElement.style.height = `${availableHeight}px`;
+        if (map.current) {
+          map.current.resize();
+        }
+      }
+    };
+
+    updateMapHeight();
+    window.addEventListener('resize', updateMapHeight);
+    return () => window.removeEventListener('resize', updateMapHeight);
+  }, [viewMode, showSearch, mapReady]);
+
+  // Also resize on window resize
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    
+    const handleResize = () => {
+      if (map.current) {
+        map.current.resize();
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [mapReady]);
 
   useEffect(() => {
     if (!map.current || !mapReady || userLocation) return;
@@ -332,8 +432,9 @@ const PlotApp = () => {
   const filteredMovements = movements;
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-      <Header
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden" style={{ height: '100vh' }}>
+      <div ref={headerRef}>
+        <Header
         isDark={isDark}
         toggleTheme={toggleTheme}
         viewMode={viewMode}
@@ -349,10 +450,31 @@ const PlotApp = () => {
         onProfileClick={handleProfileClick}
         onSignOut={handleSignOut}
         onSignInClick={() => setShowAuthModal(true)}
-      />
+        searchQuery={searchQuery}
+        onSearchChange={(value) => {
+          setSearchQuery(value);
+          if (!showSearch) {
+            setShowSearch(true);
+          }
+        }}
+        onTagClick={(tag) => {
+          setSearchQuery(tag);
+          if (!showSearch) {
+            setShowSearch(true);
+          }
+          // Ensure we're on movements view if we're on a different page
+          if (viewMode === 'movement-details') {
+            setViewMode('movements');
+            setSelectedMovement(null);
+            setIdeas([]);
+          }
+        }}
+        onClearSearch={handleClearSearch}
+        />
+      </div>
 
-      {showSearch && (
-        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 relative">
+      {showSearch && viewMode !== 'movements' && (
+        <div data-search-bar className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 relative flex-shrink-0">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -393,8 +515,8 @@ const PlotApp = () => {
         </div>
       )}
 
-      <div className="flex-1 relative overflow-hidden">
-        <div ref={mapContainer} className="absolute inset-0 z-0" />
+      <div className="flex-1 relative overflow-hidden w-full" style={{ minHeight: 0 }}>
+        <div ref={mapContainer} className="absolute inset-0 z-0" style={{ width: '100%', height: '100%' }} />
 
         {viewMode === 'movement-details' && selectedMovement ? (
           <>
