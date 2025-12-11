@@ -112,6 +112,12 @@ export const useMovementMarkers = ({
       return;
     }
 
+    console.log('[useMovementMarkers] Effect running', { 
+      viewMode, 
+      movementsCount: movements?.length || 0,
+      featuresCount: featureCollection?.features?.length || 0 
+    });
+
     clearMarkers(mapInstance, markersRef);
 
     if (viewMode !== 'movements') {
@@ -147,6 +153,23 @@ export const useMovementMarkers = ({
 
     const renderClusters = () => {
       if (isCancelled) {
+        console.log('[useMovementMarkers] renderClusters cancelled');
+        return;
+      }
+
+      console.log('[useMovementMarkers] renderClusters called', {
+        movementsCount: movements?.length || 0
+      });
+
+      // Check if style is loaded before trying to add sources/layers
+      try {
+        const style = mapInstance.getStyle();
+        if (!style || !style.sources) {
+          console.warn('[useMovementMarkers] Style not ready, cannot render markers');
+          return;
+        }
+      } catch (error) {
+        console.warn('[useMovementMarkers] Cannot access style, not ready yet:', error);
         return;
       }
 
@@ -154,22 +177,51 @@ export const useMovementMarkers = ({
       detachHandlers.length = 0;
       removeMovementLayers(mapInstance);
 
-      if (!featureCollection.features.length) {
+      // Recreate featureCollection from current movements to ensure we have latest data
+      // This is important because featureCollection in closure might be stale
+      const currentCollection = createFeatureCollection(movements);
+      
+      if (!currentCollection.featureCollection || !currentCollection.featureCollection.features || !currentCollection.featureCollection.features.length) {
         setHoveredItem(null);
-        console.warn('[useMovementMarkers] No valid movement coordinates to display.');
+        console.warn('[useMovementMarkers] No valid movement coordinates to display.', { 
+          movementsCount: movements?.length || 0,
+          featuresCount: currentCollection.featureCollection?.features?.length || 0
+        });
         return;
       }
+      
+      const currentFeatureCollection = currentCollection.featureCollection;
 
-      if (mapInstance.getSource(MOVEMENT_SOURCE_ID)) {
-        mapInstance.getSource(MOVEMENT_SOURCE_ID).setData(featureCollection);
-      } else {
-        mapInstance.addSource(MOVEMENT_SOURCE_ID, {
-          type: 'geojson',
-          data: featureCollection,
-          cluster: true,
-          clusterMaxZoom: 14,
-          clusterRadius: 60
-        });
+      try {
+        // Double-check style is ready before adding source
+        const style = mapInstance.getStyle();
+        if (!style || !style.sources) {
+          console.warn('[useMovementMarkers] Style not ready, cannot add source');
+          return;
+        }
+        
+        if (mapInstance.getSource(MOVEMENT_SOURCE_ID)) {
+          mapInstance.getSource(MOVEMENT_SOURCE_ID).setData(currentFeatureCollection);
+        } else {
+          mapInstance.addSource(MOVEMENT_SOURCE_ID, {
+            type: 'geojson',
+            data: currentFeatureCollection,
+            cluster: true,
+            clusterMaxZoom: 14,
+            clusterRadius: 60
+          });
+        }
+      } catch (error) {
+        console.error('[useMovementMarkers] Error adding source:', error);
+        // If error is because style isn't ready, try again after a delay
+        if (error.message && error.message.includes('style')) {
+          setTimeout(() => {
+            if (!isCancelled && viewMode === 'movements') {
+              renderClusters();
+            }
+          }, 200);
+        }
+        return;
       }
 
       if (!mapInstance.getLayer(MOVEMENT_CLUSTER_LAYER_ID)) {
@@ -316,57 +368,106 @@ export const useMovementMarkers = ({
       attachHandler('mousemove', MOVEMENT_UNCLUSTERED_LAYER_ID, unclusteredMouseMoveHandler);
       attachHandler('mouseleave', MOVEMENT_UNCLUSTERED_LAYER_ID, unclusteredMouseLeaveHandler);
 
-      fitMapToMovements(mapInstance, featureCollection.features, showSearch);
+      fitMapToMovements(mapInstance, currentFeatureCollection.features, showSearch);
     };
 
-    const renderWhenReady = () => {
-      // Try to render if all conditions are met
-      const tryRender = () => {
-        if (isCancelled) return false;
+    // Function to render markers - will be called on initial load and after style changes
+    const renderMarkers = () => {
+      if (isCancelled || viewMode !== 'movements') {
+        return;
+      }
+      
+      // Check if style is ready
+      const isStyleReady = () => {
         try {
-          // Try to render - if style isn't ready, it will fail gracefully
-          renderClusters();
-          return true;
+          // isStyleLoaded returns a boolean
+          if (mapInstance.isStyleLoaded && typeof mapInstance.isStyleLoaded() === 'boolean') {
+            return mapInstance.isStyleLoaded();
+          }
+          // Fallback: check if we can access style and it has sources
+          const style = mapInstance.getStyle();
+          return !!(style && style.sources);
         } catch (error) {
-          // If rendering fails, style might not be ready yet
-          console.warn('[useMovementMarkers] Style not ready, will retry:', error);
           return false;
         }
       };
-
-      // Try to render immediately
-      if (tryRender()) {
+      
+      if (!isStyleReady()) {
+        // Style not ready, wait for it
+        let retryCount = 0;
+        const maxRetries = 20;
+        const checkReady = () => {
+          if (isCancelled || retryCount >= maxRetries) {
+            if (retryCount >= maxRetries) {
+              console.warn('[useMovementMarkers] Style ready check timed out, attempting render anyway');
+              renderClusters();
+            }
+            return;
+          }
+          retryCount++;
+          if (isStyleReady()) {
+            renderClusters();
+          } else {
+            setTimeout(checkReady, 100);
+          }
+        };
+        setTimeout(checkReady, 100);
         return;
       }
-
-      // If immediate render failed, wait for style to load
-      // Use 'load' event (fires once when map is ready) and 'styledata' (fires on style changes)
-      const handleLoad = () => {
-        if (tryRender()) {
-          mapInstance.off('load', handleLoad);
-          mapInstance.off('styledata', handleStyleData);
-        }
-      };
-
-      const handleStyleData = () => {
-        if (tryRender()) {
-          mapInstance.off('load', handleLoad);
-          mapInstance.off('styledata', handleStyleData);
-        }
-      };
-
-      mapInstance.on('load', handleLoad);
-      mapInstance.on('styledata', handleStyleData);
-      detachHandlers.push(
-        () => mapInstance.off('load', handleLoad),
-        () => mapInstance.off('styledata', handleStyleData)
-      );
+      
+      // Style is ready, render markers
+      renderClusters();
     };
 
-    renderWhenReady();
+    // Initial render
+    renderMarkers();
+
+    // Listen for style changes - when setStyle() is called, Mapbox removes ALL sources/layers
+    // We need to re-add them after the new style is fully loaded
+    // Use both 'styledata' and 'load' events to catch style changes
+    let styleChangeTimeout = null;
+    
+    const handleStyleData = () => {
+      if (isCancelled || viewMode !== 'movements') return;
+      
+      console.log('[useMovementMarkers] styledata event received');
+      
+      // Clear any pending timeout
+      if (styleChangeTimeout) {
+        clearTimeout(styleChangeTimeout);
+      }
+      
+      // Wait for style to be ready, then re-render
+      styleChangeTimeout = setTimeout(() => {
+        if (isCancelled || viewMode !== 'movements') return;
+        console.log('[useMovementMarkers] Attempting to re-render after styledata');
+        renderMarkers();
+      }, 500); // Wait 500ms after styledata event
+    };
+    
+    const handleLoad = () => {
+      if (!isCancelled && viewMode === 'movements') {
+        console.log('[useMovementMarkers] load event received, re-rendering markers');
+        renderMarkers();
+      }
+    };
+
+    // Attach listeners for style changes
+    // IMPORTANT: These should NOT be in detachHandlers because renderClusters() clears detachHandlers
+    // If we put them there, the first style change would remove them and subsequent changes wouldn't work
+    mapInstance.on('load', handleLoad);
+    mapInstance.on('styledata', handleStyleData);
 
     return () => {
       isCancelled = true;
+      // Clean up style change timeout
+      if (styleChangeTimeout) {
+        clearTimeout(styleChangeTimeout);
+      }
+      // Remove style listeners (managed separately from detachHandlers)
+      mapInstance.off('load', handleLoad);
+      mapInstance.off('styledata', handleStyleData);
+      // Clean up layer-specific handlers
       detachHandlers.forEach((off) => off());
       detachHandlers.length = 0;
       mapInstance.getCanvas().style.cursor = '';

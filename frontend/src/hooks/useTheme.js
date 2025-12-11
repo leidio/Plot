@@ -2,14 +2,23 @@ import { useState, useEffect } from 'react';
 
 export const useTheme = () => {
   const getTheme = () => {
-    const htmlTheme = document.documentElement.getAttribute('data-theme');
-    if (htmlTheme) {
-      return htmlTheme === 'dark';
-    }
+    // First check if user has explicitly set a theme preference
     const stored = localStorage.getItem('theme');
     if (stored) {
       return stored === 'dark';
     }
+    
+    // Then check HTML attribute (from DaisyUI)
+    const htmlTheme = document.documentElement.getAttribute('data-theme');
+    if (htmlTheme) {
+      return htmlTheme === 'dark';
+    }
+    
+    // Finally, check system preference
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    
     return false;
   };
 
@@ -36,7 +45,7 @@ export const useTheme = () => {
     }
   }, [isDark]);
 
-  // Listen for theme changes from other components
+  // Listen for theme changes from other components and system preferences
   useEffect(() => {
     const root = document.documentElement;
     
@@ -66,11 +75,28 @@ export const useTheme = () => {
       }
     };
 
+    // Listen for system preference changes (only if no explicit preference is set)
+    let mediaQuery = null;
+    let handleSystemThemeChange = null;
+    if (typeof window !== 'undefined' && window.matchMedia && !localStorage.getItem('theme')) {
+      mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      handleSystemThemeChange = (e) => {
+        // Only update if user hasn't set an explicit preference
+        if (!localStorage.getItem('theme')) {
+          setIsDark(e.matches);
+        }
+      };
+      mediaQuery.addEventListener('change', handleSystemThemeChange);
+    }
+
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
       observer.disconnect();
       window.removeEventListener('storage', handleStorageChange);
+      if (mediaQuery && handleSystemThemeChange) {
+        mediaQuery.removeEventListener('change', handleSystemThemeChange);
+      }
     };
   }, [isDark]);
 

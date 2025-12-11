@@ -175,9 +175,11 @@ const PlotApp = () => {
       : 'mapbox://styles/mapbox/streets-v12';
     
     // setStyle doesn't return a Promise in this version of Mapbox GL JS
+    // When setStyle is called, Mapbox removes ALL custom sources and layers
+    // The useMovementMarkers hook will listen for style changes and re-add them
     try {
       map.current.setStyle(newStyle);
-      // Resize after style loads to ensure proper rendering
+      // Resize after style loads
       map.current.once('styledata', () => {
         if (map.current) {
           map.current.resize();

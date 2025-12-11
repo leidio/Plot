@@ -41,7 +41,7 @@ const Header = ({
   const isHomePage = viewMode === 'movements';
 
   return (
-    <header className="bg-white border-b border-gray-200 px-12 py-6 z-10 flex-shrink-0">
+    <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-12 py-6 z-10 flex-shrink-0">
       {/* Single row: Logo, Search/Tags (centered), Right actions */}
       <div className="flex items-start justify-between">
         {/* Left: Logo and movement name */}
