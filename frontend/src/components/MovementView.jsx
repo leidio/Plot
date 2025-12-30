@@ -274,7 +274,7 @@ const MovementView = ({
             </div>
           )}
 
-          {!headerCollapsed && (
+          {!headerCollapsed && currentUser && (
             <div className="mt-6 flex justify-center">
               <button
                 onClick={onCreateIdea}

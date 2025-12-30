@@ -7,34 +7,50 @@ const IDEA_CLUSTER_LAYER_ID = 'ideas-clusters';
 const IDEA_CLUSTER_COUNT_LAYER_ID = 'ideas-cluster-count';
 const IDEA_UNCLUSTERED_LAYER_ID = 'ideas-unclustered';
 
-const fitMapToIdeas = (mapInstance, features, headerCollapsed) => {
-  if (!mapInstance || features.length === 0) {
-    return;
-  }
-
-  const bounds = new mapboxgl.LngLatBounds();
-  features.forEach(feature => {
-    const coordinates = feature?.geometry?.coordinates;
-    if (Array.isArray(coordinates) && coordinates.length === 2) {
-      bounds.extend(coordinates);
-    }
-  });
-
-  if (bounds.isEmpty()) {
+const fitMapToIdeas = (mapInstance, features, headerCollapsed, movement) => {
+  if (!mapInstance) {
     return;
   }
 
   const topPadding = headerCollapsed ? 100 : 370;
   const bufferSize = 150;
 
-  mapInstance.fitBounds(bounds, {
-    padding: {
-      top: topPadding + bufferSize,
-      bottom: bufferSize,
-      left: bufferSize,
-      right: bufferSize
+  // If we have idea features, fit to their bounds
+  if (features.length > 0) {
+    const bounds = new mapboxgl.LngLatBounds();
+    features.forEach(feature => {
+      const coordinates = feature?.geometry?.coordinates;
+      if (Array.isArray(coordinates) && coordinates.length === 2) {
+        bounds.extend(coordinates);
+      }
+    });
+
+    if (!bounds.isEmpty()) {
+      mapInstance.fitBounds(bounds, {
+        padding: {
+          top: topPadding + bufferSize,
+          bottom: bufferSize,
+          left: bufferSize,
+          right: bufferSize
+        }
+      });
+      return;
     }
-  });
+  }
+
+  // No ideas or no valid idea coordinates - zoom to movement's location
+  if (movement?.longitude && movement?.latitude) {
+    mapInstance.flyTo({
+      center: [movement.longitude, movement.latitude],
+      zoom: 13,
+      padding: {
+        top: topPadding,
+        bottom: 0,
+        left: 0,
+        right: 0
+      }
+    });
+  }
 };
 
 const removeIdeaLayers = (mapInstance) => {
@@ -155,7 +171,9 @@ export const useIdeaMarkers = ({
 
       if (!featureCollection.features.length) {
         setHoveredItem(null);
-        console.warn('[useIdeaMarkers] No valid idea coordinates to display.');
+        console.log('[useIdeaMarkers] No ideas to display, zooming to movement location.');
+        // Still zoom to movement location even if no ideas
+        fitMapToIdeas(mapInstance, [], headerCollapsed, movement);
         return;
       }
 
@@ -322,7 +340,7 @@ export const useIdeaMarkers = ({
       attachHandler('mousemove', IDEA_UNCLUSTERED_LAYER_ID, unclusteredMouseMoveHandler);
       attachHandler('mouseleave', IDEA_UNCLUSTERED_LAYER_ID, unclusteredMouseLeaveHandler);
 
-      fitMapToIdeas(mapInstance, featureCollection.features, headerCollapsed);
+      fitMapToIdeas(mapInstance, featureCollection.features, headerCollapsed, movement);
     };
 
     const renderWhenReady = () => {

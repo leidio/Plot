@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { clearMarkers, normalizeCoordinate, projectToScreenPosition } from '../utils/mapMarkers';
 
@@ -101,10 +101,6 @@ export const useMovementMarkers = ({
   setHoveredItem,
   setPreviewMovement
 }) => {
-  const { lookup: movementLookup, featureCollection } = useMemo(
-    () => createFeatureCollection(movements),
-    [movements]
-  );
 
   useEffect(() => {
     const mapInstance = mapRef?.current;
@@ -114,8 +110,7 @@ export const useMovementMarkers = ({
 
     console.log('[useMovementMarkers] Effect running', { 
       viewMode, 
-      movementsCount: movements?.length || 0,
-      featuresCount: featureCollection?.features?.length || 0 
+      movementsCount: movements?.length || 0
     });
 
     clearMarkers(mapInstance, markersRef);
@@ -128,14 +123,17 @@ export const useMovementMarkers = ({
     let isCancelled = false;
     const detachHandlers = [];
 
+    // This will be set when we create the feature collection
+    let currentLookup = null;
+    
     const getMovementFromFeature = (feature) => {
       if (!feature?.properties) {
         return null;
       }
 
       const movementId = feature.properties.movementId;
-      if (movementId && movementLookup.has(movementId)) {
-        return movementLookup.get(movementId);
+      if (movementId && currentLookup?.has(movementId)) {
+        return currentLookup.get(movementId);
       }
 
       const movementIndex = Number(feature.properties.movementIndex);
@@ -180,9 +178,9 @@ export const useMovementMarkers = ({
       // Recreate featureCollection from current movements to ensure we have latest data
       // This is important because featureCollection in closure might be stale
       const currentCollection = createFeatureCollection(movements);
+      currentLookup = currentCollection.lookup;
       
       if (!currentCollection.featureCollection || !currentCollection.featureCollection.features || !currentCollection.featureCollection.features.length) {
-        setHoveredItem(null);
         console.warn('[useMovementMarkers] No valid movement coordinates to display.', { 
           movementsCount: movements?.length || 0,
           featuresCount: currentCollection.featureCollection?.features?.length || 0
@@ -368,7 +366,9 @@ export const useMovementMarkers = ({
       attachHandler('mousemove', MOVEMENT_UNCLUSTERED_LAYER_ID, unclusteredMouseMoveHandler);
       attachHandler('mouseleave', MOVEMENT_UNCLUSTERED_LAYER_ID, unclusteredMouseLeaveHandler);
 
-      fitMapToMovements(mapInstance, currentFeatureCollection.features, showSearch);
+      // Don't automatically fit bounds - let the map stay at user's location or default center
+      // This prevents overriding the browser geolocation
+      // If explicit fit to bounds is needed, it should be triggered by user action
     };
 
     // Function to render markers - will be called on initial load and after style changes
@@ -422,51 +422,45 @@ export const useMovementMarkers = ({
     // Initial render
     renderMarkers();
 
+    // Track if we're currently rendering to avoid infinite loops from styledata events
+    let isRendering = false;
+    let hasRenderedOnce = false;
+    
     // Listen for style changes - when setStyle() is called, Mapbox removes ALL sources/layers
     // We need to re-add them after the new style is fully loaded
-    // Use both 'styledata' and 'load' events to catch style changes
-    let styleChangeTimeout = null;
-    
-    const handleStyleData = () => {
-      if (isCancelled || viewMode !== 'movements') return;
+    // Only use 'style.load' event which fires when a new style is fully loaded (not on layer changes)
+    const handleStyleLoad = () => {
+      if (isCancelled || viewMode !== 'movements' || isRendering) return;
       
-      console.log('[useMovementMarkers] styledata event received');
-      
-      // Clear any pending timeout
-      if (styleChangeTimeout) {
-        clearTimeout(styleChangeTimeout);
-      }
-      
-      // Wait for style to be ready, then re-render
-      styleChangeTimeout = setTimeout(() => {
-        if (isCancelled || viewMode !== 'movements') return;
-        console.log('[useMovementMarkers] Attempting to re-render after styledata');
+      // Only re-render if we've already rendered once (meaning this is a style change)
+      if (hasRenderedOnce) {
+        console.log('[useMovementMarkers] style.load event received, re-rendering markers');
+        isRendering = true;
         renderMarkers();
-      }, 500); // Wait 500ms after styledata event
+        isRendering = false;
+      }
     };
     
     const handleLoad = () => {
-      if (!isCancelled && viewMode === 'movements') {
-        console.log('[useMovementMarkers] load event received, re-rendering markers');
-        renderMarkers();
-      }
+      if (isCancelled || viewMode !== 'movements' || isRendering) return;
+      console.log('[useMovementMarkers] load event received, re-rendering markers');
+      isRendering = true;
+      renderMarkers();
+      hasRenderedOnce = true;
+      isRendering = false;
     };
 
     // Attach listeners for style changes
-    // IMPORTANT: These should NOT be in detachHandlers because renderClusters() clears detachHandlers
-    // If we put them there, the first style change would remove them and subsequent changes wouldn't work
+    // Use 'style.load' instead of 'styledata' to avoid infinite loops
+    // 'style.load' only fires when a completely new style is loaded
     mapInstance.on('load', handleLoad);
-    mapInstance.on('styledata', handleStyleData);
+    mapInstance.on('style.load', handleStyleLoad);
 
     return () => {
       isCancelled = true;
-      // Clean up style change timeout
-      if (styleChangeTimeout) {
-        clearTimeout(styleChangeTimeout);
-      }
       // Remove style listeners (managed separately from detachHandlers)
       mapInstance.off('load', handleLoad);
-      mapInstance.off('styledata', handleStyleData);
+      mapInstance.off('style.load', handleStyleLoad);
       // Clean up layer-specific handlers
       detachHandlers.forEach((off) => off());
       detachHandlers.length = 0;
@@ -481,9 +475,7 @@ export const useMovementMarkers = ({
     movements,
     showSearch,
     setHoveredItem,
-    setPreviewMovement,
-    movementLookup,
-    featureCollection
+    setPreviewMovement
   ]);
 };
 

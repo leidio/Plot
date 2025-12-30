@@ -28,6 +28,15 @@ const MovementDetailsPage = ({
 
     const handleMapClick = (e) => {
       if (!addIdeaMode || !movement || !currentUser) return;
+      
+      // Don't create a new idea if clicking on an existing idea marker
+      const ideaFeatures = mapInstance.queryRenderedFeatures(e.point, {
+        layers: ['ideas-unclustered', 'ideas-clusters']
+      });
+      if (ideaFeatures && ideaFeatures.length > 0) {
+        return;
+      }
+      
       const { lng, lat } = e.lngLat;
       onRequestAddIdea({ longitude: lng, latitude: lat });
       setAddIdeaMode(false);

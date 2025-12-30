@@ -14,9 +14,10 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 3001;
 
 // Initialize Socket.IO
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173,http://localhost:5174').split(',').map(s => s.trim());
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST']
   }
@@ -102,7 +103,7 @@ app.use(helmet({
   contentSecurityPolicy: false // Allow Socket.IO connections
 }));
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: allowedOrigins,
   credentials: true
 }));
 app.use(morgan('dev'));
