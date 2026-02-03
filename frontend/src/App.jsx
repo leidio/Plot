@@ -155,12 +155,45 @@ const PlotApp = () => {
 
     map.current.addControl(new mapboxgl.NavigationControl(), 'bottom-left');
 
+    // Filter POI labels to show only landmarks, hide commercial businesses
+    const filterPOILayers = () => {
+      const style = map.current.getStyle();
+      if (!style || !style.layers) return;
+      
+      style.layers.forEach((layer) => {
+        if (layer.id.includes('poi-label')) {
+          // Show landmarks & civic places, hide restaurants/shops/lodging
+          map.current.setFilter(layer.id, [
+            'all',
+            ['match',
+              ['get', 'class'],
+              ['landmark', 'park', 'cemetery', 'place_of_worship', 'school', 
+               'college', 'hospital', 'library', 'museum', 'stadium', 
+               'zoo', 'aquarium', 'golf', 'historic', 'arts_centre',
+               'monument', 'education', 'medical', 'attraction',
+               'arts_and_entertainment', 'tourist_attraction', 'visitor_centre',
+               'gallery', 'theatre', 'cinema', 'general'],
+              true,
+              false
+            ]
+          ]);
+        }
+      });
+    };
+
+    // Run on idle (after all rendering complete) for initial load
+    map.current.once('idle', filterPOILayers);
+    
+    // Run on style changes (theme toggle)
+    map.current.on('style.load', filterPOILayers);
+
     const handleLoad = () => setMapReady(true);
     map.current.on('load', handleLoad);
 
     return () => {
       if (map.current) {
         map.current.off('load', handleLoad);
+        map.current.off('style.load', filterPOILayers);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
