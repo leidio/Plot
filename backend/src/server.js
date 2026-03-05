@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const path = require('path');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -8,6 +9,9 @@ const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
+
+// Path to built frontend (from backend/src, go up to repo root then frontend/dist)
+const frontendDist = path.join(__dirname, '..', '..', 'frontend', 'dist');
 
 const app = express();
 const server = http.createServer(app);
@@ -134,6 +138,17 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Serve built frontend (production: when frontend/dist exists, e.g. on Railway)
+app.use(express.static(frontendDist));
+
+// SPA fallback: non-API GET requests serve index.html so client-side routing works
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  res.sendFile(path.join(frontendDist, 'index.html'), (err) => {
+    if (err) next();
+  });
+});
+
 // Error handling
 app.use((err, req, res, next) => {
   console.error(err.stack);
@@ -145,7 +160,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 404 handler
+// 404 handler (API routes that don't match, or SPA fallback failed)
 app.use((req, res) => {
   res.status(404).json({ error: { message: 'Route not found' } });
 });
