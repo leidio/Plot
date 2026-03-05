@@ -39,6 +39,7 @@ const PlotApp = () => {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const headerRef = useRef(null);
+  const initialMapView = useRef(null); // center + zoom at load, restored on "All Movements"
   const { isDark, toggleTheme } = useTheme();
   const [currentUser, setCurrentUser] = useState(null);
   const [viewMode, setViewMode] = useState('movements');
@@ -137,9 +138,9 @@ const PlotApp = () => {
     if (map.current) return;
     if (!mapContainer.current) return;
     
-    const initialStyle = isDark 
-      ? 'mapbox://styles/mapbox/dark-v11' 
-      : 'mapbox://styles/mapbox/streets-v12';
+    // Previous isDark-based styles (revert by uncommenting and removing custom style):
+    // const initialStyle = isDark ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/streets-v12';
+    const initialStyle = 'mapbox://styles/leidio/cmlbfxs1i003101quh2aah4sb';
     
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
@@ -187,7 +188,15 @@ const PlotApp = () => {
     // Run on style changes (theme toggle)
     map.current.on('style.load', filterPOILayers);
 
-    const handleLoad = () => setMapReady(true);
+    const handleLoad = () => {
+      setMapReady(true);
+      // Store initial geography so "All Movements" returns here instead of zooming out
+      const c = map.current.getCenter();
+      initialMapView.current = {
+        center: [c.lng, c.lat],
+        zoom: map.current.getZoom()
+      };
+    };
     map.current.on('load', handleLoad);
 
     return () => {
@@ -203,9 +212,9 @@ const PlotApp = () => {
   useEffect(() => {
     if (!map.current) return;
     
-    const newStyle = isDark 
-      ? 'mapbox://styles/mapbox/dark-v11' 
-      : 'mapbox://styles/mapbox/streets-v12';
+    // Previous isDark-based styles (revert by uncommenting and removing custom style):
+    // const newStyle = isDark ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/streets-v12';
+    const newStyle = 'mapbox://styles/leidio/cmlbfxs1i003101quh2aah4sb';
     
     // setStyle doesn't return a Promise in this version of Mapbox GL JS
     // When setStyle is called, Mapbox removes ALL custom sources and layers
@@ -341,8 +350,11 @@ const PlotApp = () => {
       setShowSearch(true);
       setWasSearching(false);
     }
-    if (map.current) {
-      map.current.flyTo({ center: [-98.5795, 39.8283], zoom: 3.5 });
+    if (map.current && initialMapView.current) {
+      map.current.flyTo({
+        center: initialMapView.current.center,
+        zoom: initialMapView.current.zoom
+      });
     }
   }, [wasSearching, setIdeas]);
 

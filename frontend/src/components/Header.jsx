@@ -1,7 +1,6 @@
-import React from 'react';
-import { Search, Plus, Bell, User, LogOut, Moon, Sun, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { Search, Menu, X, Moon, Sun, User, LogOut } from 'lucide-react';
 import plotLogo from '../assets/plot-logo.svg';
-import plotPlusDark from '../assets/plot-plus-dark.svg';
 import plotLogoDark from '../assets/plot-logo-dark.svg';
 
 const Header = ({
@@ -25,6 +24,8 @@ const Header = ({
   onTagClick,
   onClearSearch
 }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  
   const suggestedTags = [
     'environment',
     'sustainability',
@@ -41,13 +42,13 @@ const Header = ({
   const isHomePage = viewMode === 'movements';
 
   return (
-    <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-12 py-6 z-10 flex-shrink-0">
-      {/* Single row: Logo, Search/Tags (centered), Right actions */}
+    <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4 z-10 flex-shrink-0">
+      {/* Single row: Logo + CTA, Search/Tags (centered), Hamburger */}
       <div className="flex items-start justify-between">
-        {/* Left: Logo and movement name */}
+        {/* Left: Logo and Start a Movement button */}
         <div className="flex items-center space-x-4 flex-shrink-0">
           <img src={isDark ? plotLogoDark : plotLogo} alt="Plot" className="h-8 w-auto"/>
-          {viewMode === 'movement-details' && selectedMovement && (
+          {viewMode === 'movement-details' && selectedMovement ? (
             <>
               <button 
                 onClick={onBackToMovements}
@@ -58,31 +59,39 @@ const Header = ({
               <span className="text-gray-300 dark:text-gray-600">|</span>
               <span className="font-medium dark:text-gray-200">{selectedMovement.name}</span>
             </>
+          ) : (
+            <button 
+              onClick={currentUser ? onCreateClick : onSignInClick}
+              className="btn btn-primary rounded-full px-5 py-2 text-sm font-medium"
+            >
+              Start a Movement
+            </button>
           )}
         </div>
         
         {/* Center: Search bar and tags grouped together (only on home page) */}
         {isHomePage && (
-          <div className="flex flex-col items-center space-y-3 flex-1 max-w-2xl mx-8">
+          <div className="flex flex-col items-center space-y-3 flex-1 max-w-xl mx-8">
             {/* Search Bar */}
             <div className="relative w-full">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
-                placeholder="Explore movements"
+                placeholder="Search for movements in your city"
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
-                className="w-full pl-12 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
+                className="w-full pl-4 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-full focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
               />
-              {searchQuery && (
+              {searchQuery ? (
                 <button
                   type="button"
                   onClick={onClearSearch}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 dark:text-gray-300"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 dark:text-gray-300"
                   aria-label="Clear search"
                 >
                   <X className="w-4 h-4" />
                 </button>
+              ) : (
+                <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
               )}
             </div>
 
@@ -104,66 +113,56 @@ const Header = ({
           </div>
         )}
         
-        {/* Right: Actions */}
-        <div className="flex items-center space-x-3 flex-shrink-0">
+        {/* Right: Hamburger Menu */}
+        <div className="relative flex-shrink-0" ref={profileDropdownRef}>
           <button 
-            onClick={toggleTheme}
+            onClick={() => setMenuOpen(!menuOpen)}
             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-            aria-label="Toggle theme"
+            aria-label="Open menu"
           >
-            {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            <Menu className="w-6 h-6 text-gray-700 dark:text-gray-300" />
           </button>
-          {!isHomePage && (
-            <button 
-              onClick={onToggleSearch}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-            >
-              <Search className="w-5 h-5" />
-            </button>
-          )}
-        
-          {currentUser ? (
-            <>
-              <button 
-                onClick={onCreateClick}
-                className="btn btn-primary"
+          
+          {menuOpen && (
+            <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-2 z-50">
+              {/* Theme toggle */}
+              <button
+                onClick={() => { toggleTheme(); setMenuOpen(false); }}
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center space-x-3"
               >
-                <span>Create</span>
+                {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                <span>{isDark ? 'Light Mode' : 'Dark Mode'}</span>
               </button>
-              <div className="relative" ref={profileDropdownRef}>
-                <button 
-                  onClick={onToggleProfileDropdown}
-                  className="p-2 hover:bg-gray-100 rounded-lg relative"
+              
+              <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+              
+              {currentUser ? (
+                <>
+                  <button
+                    onClick={() => { onProfileClick(); setMenuOpen(false); }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center space-x-3"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>Profile</span>
+                  </button>
+                  <button
+                    onClick={() => { onSignOut(); setMenuOpen(false); }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center space-x-3"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Sign Out</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => { onSignInClick(); setMenuOpen(false); }}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center space-x-3"
                 >
-                  <User className="w-5 h-5" />
+                  <User className="w-4 h-4" />
+                  <span>Sign In</span>
                 </button>
-                {showProfileDropdown && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50">
-                    <button
-                      onClick={onProfileClick}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center space-x-2"
-                    >
-                      <User className="w-4 h-4" />
-                      <span>Profile</span>
-                    </button>
-                    <button
-                      onClick={onSignOut}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center space-x-2"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      <span>Sign Out</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <button 
-              onClick={onSignInClick}
-              className="btn btn-primary"
-            >
-              Sign In
-            </button>
+              )}
+            </div>
           )}
         </div>
       </div>
