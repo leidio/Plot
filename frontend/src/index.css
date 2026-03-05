@@ -15,6 +15,10 @@
 
 /* Restore cursor: pointer for buttons and links in Tailwind v4 */
 @layer base {
+  html {
+    font-size: 16px; /* Lock so rem/UI size is consistent in dev and production */
+  }
+
   body {
     color: rgba(0, 0, 0, 0.87);
   }
