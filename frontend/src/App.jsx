@@ -274,10 +274,13 @@ const PlotApp = () => {
     const updateMapHeight = () => {
       if (headerRef.current && mapContainer.current?.parentElement) {
         const headerHeight = headerRef.current.offsetHeight;
-        const searchBarHeight = viewMode !== 'movements' && showSearch 
-          ? document.querySelector('[data-search-bar]')?.offsetHeight || 0 
+        const searchBarHeight = viewMode !== 'movements' && showSearch
+          ? document.querySelector('[data-search-bar]')?.offsetHeight || 0
           : 0;
-        const availableHeight = window.innerHeight - headerHeight - searchBarHeight;
+        const availableHeight = Math.max(
+          200,
+          window.innerHeight - headerHeight - searchBarHeight
+        );
         mapContainer.current.parentElement.style.height = `${availableHeight}px`;
         if (map.current) {
           map.current.resize();
@@ -562,7 +565,7 @@ const PlotApp = () => {
         </div>
       )}
 
-      <div className="flex-1 relative overflow-hidden w-full" style={{ minHeight: 0 }}>
+      <div className="flex-1 relative overflow-hidden w-full" style={{ minHeight: 200 }}>
         <div ref={mapContainer} className="absolute inset-0 z-0" style={{ width: '100%', height: '100%' }} />
 
         {viewMode === 'movement-details' && selectedMovement ? (

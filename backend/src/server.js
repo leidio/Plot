@@ -102,6 +102,14 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const aiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20, // Stricter for AI to avoid cost spikes
+  message: { error: { message: 'Too many AI requests. Please try again later.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Middleware
 app.use(helmet({
   contentSecurityPolicy: false // Allow Socket.IO connections
@@ -125,6 +133,7 @@ const movementRoutes = require('./routes/movements');
 const ideaRoutes = require('./routes/ideas');
 const donationRoutes = require('./routes/donations');
 const searchRoutes = require('./routes/search');
+const aiRoutes = require('./routes/ai');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -132,6 +141,7 @@ app.use('/api/movements', movementRoutes);
 app.use('/api/ideas', ideaRoutes);
 app.use('/api/donations', donationRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/ai', aiLimiter, aiRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

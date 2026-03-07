@@ -14,7 +14,7 @@ In **Settings** for **plot-backend**:
 | Setting | Value |
 |--------|--------|
 | **Root Directory** | Leave empty (repo root). |
-| **Custom Build Command** | `npm ci && npm run build --workspace=frontend` |
+| **Custom Build Command** | `rm -rf frontend/node_modules/.vite 2>/dev/null; npm ci && npm run build --workspace=frontend` |
 | **Custom Start Command** | `npm run start --workspace=backend` |
 
 ## 3. Backend service variables (plot-backend → Variables)

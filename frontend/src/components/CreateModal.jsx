@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import mapboxgl from 'mapbox-gl';
-import { X, Image as ImageIcon, Upload } from 'lucide-react';
+import { X, Image as ImageIcon, Upload, Sparkles } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
+
+const DESCRIPTION_MAX_LENGTH = 2000;
 
 const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, apiCall }) => {
   const { isDark } = useTheme();
@@ -22,11 +24,21 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reverseGeocodedAddress, setReverseGeocodedAddress] = useState('');
+  const [aiDropdownOpen, setAiDropdownOpen] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiResultType, setAiResultType] = useState(null);
+  const [aiResult, setAiResult] = useState(null);
+  const [draftTasks, setDraftTasks] = useState([]);
+  const [focusedAiField, setFocusedAiField] = useState(null);
+  const [aiAnchorField, setAiAnchorField] = useState(null);
   const locationInputRef = useRef(null);
   const suggestionsRef = useRef(null);
   const debounceTimerRef = useRef(null);
   const fileInputRef = useRef(null);
   const coverImageInputRef = useRef(null);
+  const aiPopoverRef = useRef(null);
+  const popoverJustOpenedRef = useRef(false);
 
   useEffect(() => {
     if (initialCoordinates && type === 'idea') {
@@ -176,6 +188,25 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
     };
   }, []);
 
+  // Close AI popover when clicking outside (skip the same mousedown that opened it)
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (popoverJustOpenedRef.current) {
+        popoverJustOpenedRef.current = false;
+        return;
+      }
+      if (
+        aiDropdownOpen &&
+        aiPopoverRef.current &&
+        !aiPopoverRef.current.contains(event.target)
+      ) {
+        setAiDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [aiDropdownOpen]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -239,6 +270,16 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
         });
 
         if (response.data.idea) {
+          const ideaId = response.data.idea.id;
+          if (draftTasks.length > 0) {
+            for (const task of draftTasks) {
+              await apiCall('post', `/ideas/${ideaId}/tasks`, {
+                title: task.title,
+                description: task.description || undefined,
+                order: draftTasks.indexOf(task)
+              });
+            }
+          }
           onSuccess();
         } else {
           throw new Error('Failed to create idea - invalid response');
@@ -266,6 +307,59 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     setError('');
+  };
+
+  const handleAiAction = async (actionType) => {
+    setAiError('');
+    setAiResult(null);
+    setAiResultType(null);
+    setAiLoading(true);
+    setAiDropdownOpen(false);
+    try {
+      const payload = {
+        type: actionType,
+        entityType: type,
+        text: formData.description,
+        title: formData.name
+      };
+      const response = await apiCall('post', '/ai/improve', payload);
+      const data = response.data;
+
+      if (actionType === 'rewrite' || actionType === 'tone') {
+        if (data.result) {
+          handleChange('description', data.result);
+        }
+        setAiResult(null);
+        setAiResultType(null);
+      } else if (actionType === 'review') {
+        setAiResultType('review');
+        setAiResult({
+          score: data.score,
+          summary: data.summary,
+          suggestions: data.suggestions || []
+        });
+      } else if (actionType === 'suggestions') {
+        setAiResultType('suggestions');
+        setAiResult({ suggestions: data.suggestions || [] });
+      } else if (actionType === 'tasks') {
+        setAiResultType('tasks');
+        const tasks = data.tasks || [];
+        setDraftTasks(tasks);
+        setAiResult({ tasks });
+      }
+    } catch (err) {
+      const msg = err.response?.data?.error?.message || err.message || 'AI request failed';
+      setAiError(msg);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const openAiPopover = (e, anchorField) => {
+    if (e) e.preventDefault();
+    popoverJustOpenedRef.current = true;
+    setAiAnchorField(anchorField);
+    setAiDropdownOpen(true);
   };
 
   const convertToBase64 = (file) => {
@@ -313,6 +407,20 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
     setCoverImage(null);
   };
 
+  const aiPopoverActions = (
+    <div className="p-3 space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={aiLoading} onClick={() => handleAiAction('rewrite')} className={`px-3 py-1.5 rounded-full text-sm font-medium ${isDark ? 'bg-emerald-700/50 text-emerald-200 hover:bg-emerald-700' : 'bg-emerald-200 text-emerald-900 hover:bg-emerald-300'} disabled:opacity-50`}>Rewrite for clarity</button>
+        <button type="button" disabled={aiLoading} onClick={() => handleAiAction('tone')} className={`px-3 py-1.5 rounded-full text-sm font-medium ${isDark ? 'bg-emerald-700/50 text-emerald-200 hover:bg-emerald-700' : 'bg-emerald-200 text-emerald-900 hover:bg-emerald-300'} disabled:opacity-50`}>Change tone</button>
+        <button type="button" disabled={aiLoading} onClick={() => handleAiAction('review')} className={`px-3 py-1.5 rounded-full text-sm font-medium ${isDark ? 'bg-emerald-700/50 text-emerald-200 hover:bg-emerald-700' : 'bg-emerald-200 text-emerald-900 hover:bg-emerald-300'} disabled:opacity-50`}>Review for inclusive language</button>
+        <button type="button" disabled={aiLoading} onClick={() => handleAiAction('suggestions')} className={`px-3 py-1.5 rounded-full text-sm font-medium ${isDark ? 'bg-emerald-700/50 text-emerald-200 hover:bg-emerald-700' : 'bg-emerald-200 text-emerald-900 hover:bg-emerald-300'} disabled:opacity-50`}>Suggest improvements</button>
+        {type === 'idea' && <button type="button" disabled={aiLoading} onClick={() => handleAiAction('tasks')} className={`px-3 py-1.5 rounded-full text-sm font-medium ${isDark ? 'bg-emerald-700/50 text-emerald-200 hover:bg-emerald-700' : 'bg-emerald-200 text-emerald-900 hover:bg-emerald-300'} disabled:opacity-50`}>Suggest tasks</button>}
+      </div>
+      {aiLoading && <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Thinking...</p>}
+      {aiError && <p className={`text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>{aiError}</p>}
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} rounded-lg max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto`}>
@@ -320,25 +428,111 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
           Create {type === 'movement' ? 'Movement' : 'Idea'}
         </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
+          {/* Title — floaty when focused */}
+          <div className="relative">
             <input
               type="text"
               placeholder={type === 'movement' ? 'Movement Name *' : 'Idea Title'}
               value={formData.name}
               onChange={(e) => handleChange('name', e.target.value)}
+              onFocus={() => setFocusedAiField('name')}
+              onBlur={() => setFocusedAiField(prev => prev === 'name' ? null : prev)}
               className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
               required
             />
+            {focusedAiField === 'name' && (
+              <button
+                type="button"
+                onMouseDown={(e) => openAiPopover(e, 'name')}
+                className={`absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${isDark ? 'bg-emerald-700/80 text-emerald-100 hover:bg-emerald-700' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'}`}
+                aria-label="Get AI help"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Get AI help
+              </button>
+            )}
+            {aiDropdownOpen && aiAnchorField === 'name' && (
+              <div ref={aiPopoverRef} className={`absolute left-0 right-0 mt-1 z-[100] rounded-lg border shadow-lg overflow-hidden ${isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'}`}>
+                {aiPopoverActions}
+              </div>
+            )}
           </div>
-          <div>
+
+          {/* Description — floaty when focused */}
+          <div className="relative">
+            <div className="flex items-center justify-between mb-1">
+              <label className={`block text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                Description *
+              </label>
+              <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                {formData.description.length}/{DESCRIPTION_MAX_LENGTH}
+              </span>
+              {formData.description.length > 0 && formData.name?.trim() && (
+                <span className="text-green-600" aria-hidden="true">✓</span>
+              )}
+            </div>
             <textarea
-              placeholder="Description *"
+              placeholder="Describe your movement or idea..."
               rows={4}
+              maxLength={DESCRIPTION_MAX_LENGTH}
               value={formData.description}
               onChange={(e) => handleChange('description', e.target.value)}
+              onFocus={() => setFocusedAiField('description')}
+              onBlur={() => setFocusedAiField(prev => prev === 'description' ? null : prev)}
               className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
               required
             />
+            {focusedAiField === 'description' && (
+              <button
+                type="button"
+                onMouseDown={(e) => openAiPopover(e, 'description')}
+                className={`absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${isDark ? 'bg-emerald-700/80 text-emerald-100 hover:bg-emerald-700' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'}`}
+                aria-label="Get AI help"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Get AI help
+              </button>
+            )}
+            {aiDropdownOpen && aiAnchorField === 'description' && (
+              <div ref={aiPopoverRef} className={`absolute left-0 right-0 mt-1 z-[100] rounded-lg border shadow-lg overflow-hidden ${isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'}`}>
+                {aiPopoverActions}
+              </div>
+            )}
+
+            {/* Inline result block: below description */}
+            {aiResultType && aiResult && (
+              <div className={`mt-3 rounded-lg border p-3 ${isDark ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-200'}`}>
+                {aiResultType === 'review' && (
+                  <>
+                    <p className="text-sm"><strong>Score:</strong> {aiResult.score}/5 — {aiResult.summary}</p>
+                    {aiResult.suggestions?.length > 0 && (
+                      <ul className="mt-2 list-disc list-inside text-sm space-y-0.5">
+                        {aiResult.suggestions.map((s, i) => <li key={i}>{s}</li>)}
+                      </ul>
+                    )}
+                    <button type="button" onClick={() => { setAiResult(null); setAiResultType(null); }} className={`mt-3 text-sm font-medium ${isDark ? 'text-emerald-400 hover:underline' : 'text-emerald-600 hover:underline'}`}>Dismiss</button>
+                  </>
+                )}
+                {aiResultType === 'suggestions' && aiResult.suggestions?.length > 0 && (
+                  <>
+                    <p className="text-sm font-medium mb-1">Suggestions</p>
+                    <ul className="list-disc list-inside text-sm space-y-0.5">
+                      {aiResult.suggestions.map((s, i) => <li key={i}>{s}</li>)}
+                    </ul>
+                    <button type="button" onClick={() => { setAiResult(null); setAiResultType(null); }} className={`mt-3 text-sm font-medium ${isDark ? 'text-emerald-400 hover:underline' : 'text-emerald-600 hover:underline'}`}>Dismiss</button>
+                  </>
+                )}
+                {aiResultType === 'tasks' && aiResult.tasks?.length > 0 && (
+                  <>
+                    <p className="text-sm font-medium mb-1">Suggested tasks (we&apos;ll add these when you create the idea)</p>
+                    <ul className="list-disc list-inside text-sm space-y-0.5">
+                      {aiResult.tasks.map((t, i) => <li key={i}><strong>{t.title}</strong>{t.description ? ` — ${t.description}` : ''}</li>)}
+                    </ul>
+                    <button type="button" onClick={() => { setAiResult(null); setAiResultType(null); }} className={`mt-3 text-sm font-medium ${isDark ? 'text-emerald-400 hover:underline' : 'text-emerald-600 hover:underline'}`}>Dismiss</button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           {type === 'movement' ? (
             <div className="relative" ref={locationInputRef}>

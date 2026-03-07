@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import MovementView from './MovementView';
 import HoverPreviewModal from './HoverPreviewModal';
 
@@ -22,40 +22,45 @@ const MovementDetailsPage = ({
   const [addIdeaMode, setAddIdeaMode] = useState(false);
   const [hoveredItem, setHoveredItem] = useState(null);
 
+  // Convert a mouse event (viewport coords) to lng/lat and request add idea.
+  // Used by the map-area overlay so clicks are handled in React instead of relying on map click.
+  const handleMapAreaClick = useCallback(
+    (event) => {
+      if (!mapRef?.current || !movement || !currentUser || !addIdeaMode) return;
+
+      const mapInstance = mapRef.current;
+      const container = mapInstance.getContainer();
+      const rect = container.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+
+      const point = [x, y];
+      const ideaFeatures = mapInstance.queryRenderedFeatures(point, {
+        layers: ['ideas-unclustered', 'ideas-clusters']
+      });
+      if (ideaFeatures && ideaFeatures.length > 0) return;
+
+      const lngLat = mapInstance.unproject(point);
+      onRequestAddIdea({ longitude: lngLat.lng, latitude: lngLat.lat });
+      setAddIdeaMode(false);
+    },
+    [addIdeaMode, mapRef, movement, currentUser, onRequestAddIdea]
+  );
+
   useEffect(() => {
     if (!mapRef?.current || !mapReady) return;
     const mapInstance = mapRef.current;
 
-    const handleMapClick = (e) => {
-      if (!addIdeaMode || !movement || !currentUser) return;
-      
-      // Don't create a new idea if clicking on an existing idea marker
-      const ideaFeatures = mapInstance.queryRenderedFeatures(e.point, {
-        layers: ['ideas-unclustered', 'ideas-clusters']
-      });
-      if (ideaFeatures && ideaFeatures.length > 0) {
-        return;
-      }
-      
-      const { lng, lat } = e.lngLat;
-      onRequestAddIdea({ longitude: lng, latitude: lat });
-      setAddIdeaMode(false);
-    };
-
-    if (addIdeaMode) {
-      mapInstance.on('click', handleMapClick);
-      if (mapInstance.getCanvas()) {
-        mapInstance.getCanvas().style.cursor = 'crosshair';
-      }
+    if (addIdeaMode && mapInstance.getCanvas()) {
+      mapInstance.getCanvas().style.cursor = 'crosshair';
     }
 
     return () => {
-      mapInstance.off('click', handleMapClick);
       if (mapInstance.getCanvas()) {
         mapInstance.getCanvas().style.cursor = '';
       }
     };
-  }, [addIdeaMode, mapReady, mapRef, movement, currentUser, onRequestAddIdea]);
+  }, [addIdeaMode, mapReady, mapRef]);
 
   return (
     <>
@@ -72,6 +77,7 @@ const MovementDetailsPage = ({
         onIdeaSelect={onIdeaSelect}
         onCreateIdea={() => setAddIdeaMode(true)}
         addIdeaMode={addIdeaMode}
+        onMapAreaClick={addIdeaMode ? handleMapAreaClick : undefined}
         onLocationClick={onLocationClick}
         onFollowChange={onFollowChange}
         onTagClick={onTagClick}

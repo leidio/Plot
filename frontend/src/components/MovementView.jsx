@@ -17,6 +17,7 @@ const MovementView = ({
   onIdeaSelect,
   onCreateIdea,
   addIdeaMode,
+  onMapAreaClick,
   onLocationClick,
   onFollowChange,
   onTagClick,
@@ -289,6 +290,14 @@ const MovementView = ({
       </div>
 
       <div ref={contentRef} className="flex-1 relative pointer-events-none overflow-auto bg-transparent">
+        {addIdeaMode && onMapAreaClick && (
+          <div
+            className="absolute inset-0 cursor-crosshair z-[1]"
+            style={{ pointerEvents: 'auto' }}
+            onClick={onMapAreaClick}
+            aria-label="Click map to add idea"
+          />
+        )}
         {addIdeaMode && currentUser && (
           <div className={`pointer-events-auto absolute top-4 left-1/2 transform -translate-x-1/2 ${isDark ? 'bg-blue-900 border-blue-700' : 'bg-blue-50 border-blue-200'} border rounded-lg p-3 z-10`}>
             <p className={`text-sm font-medium mb-1 ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>
