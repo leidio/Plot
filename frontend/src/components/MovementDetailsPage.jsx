@@ -17,7 +17,8 @@ const MovementDetailsPage = ({
   onTagClick,
   onFollowChange,
   onRequestAddIdea,
-  apiCall
+  apiCall,
+  loadIdeas
 }) => {
   const [addIdeaMode, setAddIdeaMode] = useState(false);
   const [hoveredItem, setHoveredItem] = useState(null);
@@ -82,6 +83,7 @@ const MovementDetailsPage = ({
         onFollowChange={onFollowChange}
         onTagClick={onTagClick}
         apiCall={apiCall}
+        loadIdeas={loadIdeas}
       />
       <HoverPreviewModal hoveredItem={hoveredItem} />
     </>

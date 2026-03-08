@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, ChevronUp, Lightbulb, Check, Plus } from 'lucide-react';
+import { MapPin, ChevronUp, Lightbulb, Check, Plus, Sparkles, X } from 'lucide-react';
 import { useIdeaMarkers } from './movement-details/useIdeaMarkers';
 import { usePresence } from '../hooks/usePresence';
 import { useTheme } from '../hooks/useTheme';
@@ -21,15 +21,58 @@ const MovementView = ({
   onLocationClick,
   onFollowChange,
   onTagClick,
-  apiCall
+  apiCall,
+  loadIdeas
 }) => {
   const { isDark } = useTheme();
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [isLoadingFollow, setIsLoadingFollow] = useState(false);
+  const [suggestIdeasLoading, setSuggestIdeasLoading] = useState(false);
+  const [suggestIdeasError, setSuggestIdeasError] = useState(null);
+  const [suggestedIdeas, setSuggestedIdeas] = useState([]);
+  const [suggestedAreaSummary, setSuggestedAreaSummary] = useState('');
+  const [addingIdeaId, setAddingIdeaId] = useState(null);
   const headerRef = useRef(null);
   const contentRef = useRef(null);
   const viewers = usePresence({ socket, isConnected, movement, currentUser });
+
+  const handleSuggestIdeas = async () => {
+    if (!movement?.id || !currentUser) return;
+    setSuggestIdeasError(null);
+    setSuggestedIdeas([]);
+    setSuggestedAreaSummary('');
+    setSuggestIdeasLoading(true);
+    try {
+      const response = await apiCall('post', '/ai/suggest-ideas', { movementId: movement.id });
+      setSuggestedIdeas(response.data.suggestions || []);
+      setSuggestedAreaSummary(response.data.areaSummary || '');
+    } catch (err) {
+      setSuggestIdeasError(err.response?.data?.error?.message || err.message || 'Failed to suggest ideas');
+    } finally {
+      setSuggestIdeasLoading(false);
+    }
+  };
+
+  const handleAddSuggestedIdea = async (suggestion, index) => {
+    if (!movement?.id || !currentUser || addingIdeaId != null) return;
+    setAddingIdeaId(index);
+    try {
+      await apiCall('post', '/ideas', {
+        title: suggestion.title,
+        description: suggestion.description,
+        movementId: movement.id,
+        latitude: movement.latitude,
+        longitude: movement.longitude
+      });
+      if (loadIdeas) await loadIdeas(movement.id);
+      setSuggestedIdeas(prev => prev.filter((_, i) => i !== index));
+    } catch (err) {
+      console.error('Error adding idea:', err);
+    } finally {
+      setAddingIdeaId(null);
+    }
+  };
 
   useEffect(() => {
     if (movement && currentUser && movement.members) {
@@ -276,14 +319,84 @@ const MovementView = ({
           )}
 
           {!headerCollapsed && currentUser && (
-            <div className="mt-6 flex justify-center">
-              <button
-                onClick={onCreateIdea}
-                className={`${isDark ? 'bg-gray-700 border-gray-600 hover:bg-gray-600 text-gray-200' : 'bg-white border-gray-300 hover:bg-gray-50'} border-2 px-6 py-3 rounded-lg flex items-center gap-2 font-medium`}
-              >
-                <Lightbulb className="w-5 h-5" />
-                Add an idea
-              </button>
+            <div className="mt-6 space-y-4">
+              <div className="flex flex-wrap justify-center gap-3">
+                <button
+                  onClick={onCreateIdea}
+                  className={`${isDark ? 'bg-gray-700 border-gray-600 hover:bg-gray-600 text-gray-200' : 'bg-white border-gray-300 hover:bg-gray-50'} border-2 px-6 py-3 rounded-lg flex items-center gap-2 font-medium`}
+                >
+                  <Lightbulb className="w-5 h-5" />
+                  Add an idea
+                </button>
+                <button
+                  onClick={handleSuggestIdeas}
+                  disabled={suggestIdeasLoading}
+                  className={`${isDark ? 'bg-emerald-700 border-emerald-600 hover:bg-emerald-600 text-white' : 'bg-emerald-500 border-emerald-600 hover:bg-emerald-600 text-white'} border-2 px-6 py-3 rounded-lg flex items-center gap-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {suggestIdeasLoading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Analyzing area…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-5 h-5" />
+                      Suggest ideas with AI
+                    </>
+                  )}
+                </button>
+              </div>
+              {suggestIdeasError && (
+                <p className={`text-center text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+                  {suggestIdeasError}
+                </p>
+              )}
+              {suggestedIdeas.length > 0 && (
+                <div className={`rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} p-4`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className={`font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
+                      AI-suggested ideas
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => { setSuggestedIdeas([]); setSuggestedAreaSummary(''); }}
+                      className={`p-1 rounded ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}
+                      aria-label="Close"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  {suggestedAreaSummary && (
+                    <div className={`mb-4 rounded-lg px-3 py-2 text-sm ${isDark ? 'bg-gray-700/50 text-gray-300' : 'bg-white border border-gray-200 text-gray-700'}`}>
+                      <p className="font-medium mb-1">Area summary</p>
+                      <p className="leading-relaxed">{suggestedAreaSummary}</p>
+                    </div>
+                  )}
+                  <ul className="space-y-3 max-h-64 overflow-y-auto">
+                    {suggestedIdeas.map((suggestion, index) => (
+                      <li
+                        key={index}
+                        className={`rounded-lg border p-3 ${isDark ? 'bg-gray-700/50 border-gray-600' : 'bg-white border-gray-200'}`}
+                      >
+                        <p className={`font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
+                          {suggestion.title}
+                        </p>
+                        <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'} line-clamp-2`}>
+                          {suggestion.description}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleAddSuggestedIdea(suggestion, index)}
+                          disabled={addingIdeaId !== null}
+                          className="mt-2 text-sm font-medium text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                        >
+                          {addingIdeaId === index ? 'Adding…' : 'Add as idea'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>

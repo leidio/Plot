@@ -708,6 +708,7 @@ const PlotApp = () => {
               }
             }}
             onRequestAddIdea={handleRequestAddIdea}
+            loadIdeas={loadIdeas}
           />
           </>
         ) : (

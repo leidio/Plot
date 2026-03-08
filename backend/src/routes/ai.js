@@ -1,6 +1,7 @@
 const express = require('express');
 const { authenticateToken } = require('../middleware/auth');
 const { callOpenAI } = require('../lib/llm');
+const prisma = require('../lib/prisma');
 
 const router = express.Router();
 
@@ -82,6 +83,80 @@ router.post('/improve', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('AI improve error:', err);
     const message = err.message || 'AI request failed';
+    const status = message.includes('OPENAI_API_KEY') ? 503 : 500;
+    return res.status(status).json({ error: { message } });
+  }
+});
+
+/**
+ * Deep interpretation of a movement's area and surroundings to suggest ideas.
+ * POST /api/ai/suggest-ideas  body: { movementId }
+ */
+router.post('/suggest-ideas', authenticateToken, async (req, res) => {
+  try {
+    const { movementId } = req.body;
+    if (!movementId) {
+      return res.status(400).json({ error: { message: 'movementId is required' } });
+    }
+
+    const movement = await prisma.movement.findUnique({
+      where: { id: movementId },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        city: true,
+        state: true,
+        country: true,
+        latitude: true,
+        longitude: true,
+        tags: true,
+        boundary: true,
+        boundaryBbox: true
+      }
+    });
+
+    if (!movement) {
+      return res.status(404).json({ error: { message: 'Movement not found' } });
+    }
+
+    const hasBoundary = movement.boundary?.coordinates?.length > 0;
+    const locationContext = hasBoundary
+      ? `The movement has a defined geographic boundary (polygon) centered near ${movement.city}, ${movement.state}. Consider the area inside this boundary and its immediate surroundings.`
+      : `The movement is centered at ${movement.city}, ${movement.state} (lat/lng: ${movement.latitude}, ${movement.longitude}). Consider this location and its surroundings—neighborhoods, local issues, and regional context.`;
+
+    const systemPrompt = `You are a civic engagement strategist. Your task is to do a deep interpretation of a movement's geographic area and its surroundings, then write a brief area summary and propose concrete ideas that would fit the movement.
+
+Guidelines:
+- Base your interpretation on the movement's name, description, tags, and especially the PLACE: ${locationContext}
+- Think about local needs, assets, demographics, and issues that matter in that area.
+- First write a short "areaSummary" (2–4 sentences) that captures what this place is like and why it matters for this movement—e.g. character of the area, key opportunities or challenges, or how the location connects to the movement's goals.
+- Then suggest 5–8 ideas. Each idea has a short "title" (clear, concrete) and a "description" (2–4 sentences explaining the idea and why it fits this movement and place).
+- Vary the types of ideas (e.g. events, projects, campaigns, spaces, partnerships).
+- Return a JSON object with: "areaSummary" (string) and "suggestions" (array). Each suggestion: { "title": string, "description": string }`;
+
+    const userMessage = `Movement: ${movement.name}
+Description: ${movement.description}
+Location: ${movement.city}, ${movement.state}${movement.country ? `, ${movement.country}` : ''}
+Tags: ${(movement.tags || []).join(', ') || 'none'}
+${hasBoundary ? 'This movement has a drawn boundary (specific geographic area).' : ''}
+
+Provide an area summary and 5–8 ideas. Return JSON: { "areaSummary": "2-4 sentences about the area...", "suggestions": [ { "title": "...", "description": "..." }, ... ] }`;
+
+    const raw = await callOpenAI(systemPrompt, userMessage, { json: true });
+    const parsed = JSON.parse(raw);
+    const areaSummary =
+      typeof parsed.areaSummary === 'string' ? parsed.areaSummary.trim() : '';
+    const suggestions = Array.isArray(parsed.suggestions)
+      ? parsed.suggestions
+          .filter(s => s && typeof s.title === 'string' && typeof s.description === 'string')
+          .map(s => ({ title: s.title.trim(), description: s.description.trim() }))
+      : [];
+
+    return res.json({ areaSummary, suggestions });
+  } catch (err) {
+    console.error('AI suggest-ideas error:', err);
+    const message = err.message || 'Failed to suggest ideas';
     const status = message.includes('OPENAI_API_KEY') ? 503 : 500;
     return res.status(status).json({ error: { message } });
   }
