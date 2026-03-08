@@ -4,6 +4,29 @@ const prisma = require('../lib/prisma');
 
 const router = express.Router();
 
+/** Validate GeoJSON polygon and return { centroid: [lng, lat], bbox: [minLng, minLat, maxLng, maxLat] } or null. */
+function parseBoundary(boundary) {
+  if (!boundary || typeof boundary !== 'object') return null;
+  const coords = boundary.coordinates || boundary;
+  if (!Array.isArray(coords) || coords.length === 0) return null;
+  const ring = Array.isArray(coords[0]) && typeof coords[0][0] === 'number' ? coords : coords[0];
+  if (!Array.isArray(ring) || ring.length < 4) return null;
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  let sumLng = 0, sumLat = 0, n = 0;
+  for (const p of ring) {
+    const [lng, lat] = Array.isArray(p) ? p : [p?.lng ?? p?.x, p?.lat ?? p?.y];
+    if (typeof lng !== 'number' || typeof lat !== 'number') return null;
+    minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng);
+    minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+    sumLng += lng; sumLat += lat; n++;
+  }
+  return {
+    centroid: [sumLng / n, sumLat / n],
+    bbox: [minLng, minLat, maxLng, maxLat],
+    coordinates: coords
+  };
+}
+
 // Helper to get Socket.IO instance
 const getIO = (req) => {
   return req.app.get('io');
@@ -100,24 +123,47 @@ router.get('/:id', async (req, res) => {
 // Create movement
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { name, description, latitude, longitude, city, state, tags, coverImage } = req.body;
+    const { name, description, latitude, longitude, city, state, tags, coverImage, boundary } = req.body;
 
-    if (!name || !description || !latitude || !longitude || !city || !state) {
-      return res.status(400).json({ 
-        error: { message: 'Name, description, location, city, and state are required' }
+    if (!name || !description || !city || !state) {
+      return res.status(400).json({
+        error: { message: 'Name, description, city, and state are required' }
       });
+    }
+
+    let lat;
+    let lng;
+    let boundaryData = null;
+    let boundaryBboxData = null;
+
+    const parsed = parseBoundary(boundary);
+    if (parsed) {
+      lat = parsed.centroid[1];
+      lng = parsed.centroid[0];
+      boundaryData = { coordinates: parsed.coordinates };
+      boundaryBboxData = parsed.bbox;
+    } else {
+      if (latitude == null || longitude == null) {
+        return res.status(400).json({
+          error: { message: 'Either a location (latitude/longitude) or a valid boundary polygon is required' }
+        });
+      }
+      lat = parseFloat(latitude);
+      lng = parseFloat(longitude);
     }
 
     const movement = await prisma.movement.create({
       data: {
         name,
         description,
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
+        latitude: lat,
+        longitude: lng,
         city,
         state,
         tags: tags || [],
         coverImage,
+        boundary: boundaryData,
+        boundaryBbox: boundaryBboxData,
         ownerId: req.user.userId
       },
       include: {

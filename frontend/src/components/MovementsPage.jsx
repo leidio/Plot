@@ -18,7 +18,9 @@ const MovementsPage = ({
   onIdeaSelect,
   showSearch,
   onClearSearch,
-  setPreviewMovement
+  setPreviewMovement,
+  returnToMovement,
+  onBackFromTagSearch
 }) => {
   const [hoveredItem, setHoveredItem] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -74,6 +76,9 @@ const MovementsPage = ({
               onMovementSelect={onMovementSelect}
               onIdeaSelect={onIdeaSelect}
               onClear={onClearSearch}
+              returnToMovement={returnToMovement}
+              onBackFromTagSearch={onBackFromTagSearch}
+              onTagClick={onSearchChange}
             />
           ) : (
             <MovementsList

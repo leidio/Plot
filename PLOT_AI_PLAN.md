@@ -18,17 +18,17 @@ This plan defines Plot’s AI features and maps each to the five AI modes: **Gen
 
 ## Feature list (with modes and build order)
 
-### 1. Summarize a movement’s ideas — *Build first*
+### 1. Summarize a movement’s ideas *(moved down; do after Analyze map selection)*
 
 **What it does:** For a single movement, AI produces key themes, discussion questions, or a one-page draft from its ideas.
 
 **AI modes:** **Generative** (summary/draft), **Assistive** (helps facilitators).
 
-**Build order:** 1
+**Build order:** 4
 
 ---
 
-### 2. Creation-time support for Ideas and Movements — *Expanded*
+### 2. Creation-time support for Ideas and Movements — ✅ Done
 
 **What it does:** While users are creating or editing an idea or movement, AI helps in one place (e.g. “Improve with AI” / “AI review”):
 
@@ -38,17 +38,19 @@ This plan defines Plot’s AI features and maps each to the five AI modes: **Gen
 
 **AI modes:** **Generative** (tasks, suggestions), **Assistive** (review, guidance).
 
-**Build order:** 2
+**Build order:** 1 *(completed)*
 
 ---
 
-### 3. Intelligent Idea Generation Assistant
+### 3. Intelligent Idea Generation Assistant — *Next*
 
-**What it does:** When a user clicks the map to add an idea, AI uses location context (demographics, zoning, nearby ideas, etc.) to suggest project types and starter descriptions (e.g. food desert → Community Garden, Mobile Food Pantry Hub).
+**What it does:** When a member with idea-creation permission hits "Suggest ideas" (or clicks the map to add an idea), AI suggests project types and starter descriptions that fit the movement and the place — physically, and where possible culturally, socially, economically, and historically.
 
 **AI modes:** **Generative** (suggestions), **Assistive** (reduces friction at point of need).
 
-**Build order:** 3
+**Build order:** 2 *(next)*
+
+**Inputs (high level):** Movement identity (name, description, tags, city/state, existing ideas); the place(s) tied to the request (click point and/or movement footprint); existing ideas in that area; and any geographic/civic context we can supply (see detailed plan).
 
 ---
 
@@ -58,7 +60,7 @@ This plan defines Plot’s AI features and maps each to the five AI modes: **Gen
 
 **AI modes:** **Generative** (analysis/summary), **Assistive** (discovery).
 
-**Build order:** 4
+**Build order:** 3
 
 ---
 
@@ -119,10 +121,10 @@ This plan defines Plot’s AI features and maps each to the five AI modes: **Gen
 
 ## Build order (implementation sequence)
 
-1. Summarize a movement’s ideas  
-2. Creation-time support (tasks, content review, suggestions)  
-3. Intelligent Idea Generation (map-click → suggestions)  
-4. Analyze map selection  
+1. ~~Creation-time support (tasks, content review, suggestions)~~ — **Done**  
+2. **Intelligent Idea Generation** (suggest ideas for movement + place) — **Next**  
+3. Analyze map selection  
+4. Summarize a movement's ideas *(moved down)*  
 5. Civic knowledge foundation  
 6. Location Intelligence Layer  
 7. AI Co-Pilot (including agentive actions)
@@ -172,12 +174,61 @@ This plan defines Plot’s AI features and maps each to the five AI modes: **Gen
 
 ## Feature 3 — Intelligent Idea Generation Assistant
 
-**Goal:** Map click to add idea → AI suggests project types and starter descriptions from location context.
+**Goal:** When a user with idea-creation permission hits “Suggest ideas” (or clicks the map to add an idea), the AI suggests project types and starter descriptions that are relevant to the *movement* (its identity, tags, existing ideas) and to the *place* (physical and, where we can supply or infer it, cultural, social, economic, historical context).
 
-- **Data model:** None. Context = movement + nearby ideas (bbox query).
-- **Backend:** `POST /api/ai/ideas/suggest` — body `{ movementId, latitude, longitude, address? }`. Load movement; query ideas in ~2km bbox; build context string; LLM returns JSON `{ suggestions: [{ title, description }] }`.
-- **Frontend:** `CreateModal` when type idea + initialCoordinates: on open or "Get suggestions" call API; show suggestion cards; click one to fill title/description.
-- **Steps:** 1) Add suggest route + bbox query. 2) CreateModal idea flow: call suggest, populate form from selection.
+---
+
+### Inputs the AI receives
+
+**1. Movement context (always)**  
+- Identity: `name`, `description`, `city`, `state`, `tags`.  
+- Scale/signal: member count, follower count (if we have it).  
+- Existing ideas: for this movement, list of idea `title`, `description`, `city`, `state` (and tags if we have them).  
+- Optional: recent updates, organization name/description — if we have them and they’re useful for tone and focus.
+
+**2. Place context (what “the map” contributes)**  
+- **If the user clicked a point:** `latitude`, `longitude`; optional reverse-geocoded **address** and **neighborhood/place name** (e.g. from Mapbox Geocoding) so the AI can reason about “where” in human terms.  
+- **If “Suggest ideas” without a click:** we still have the movement’s **city/state** and the **geographic footprint of its existing ideas** (e.g. bbox or list of city/state of each idea). So “place” = the movement’s current map, not a single pin.
+
+**3. Existing ideas in the area (to align and differentiate)**  
+- Ideas in the *same movement* that are **near** the point (e.g. within ~2 km bbox) or in the same city/neighborhood: title, short description, so the AI can suggest things that **complement** rather than duplicate, and that fit the movement’s existing portfolio.
+
+**4. Optional: other movements’ ideas in the area**  
+- Same bbox or same city: titles (and maybe one-line descriptions) so the AI can suggest ideas that are relevant but distinct from what others are already doing.
+
+So in all cases the AI sees: *who the movement is* (1), *where we’re focusing* (2), and *what’s already there* (3, and optionally 4).
+
+---
+
+### Geographic and civic data: what helps interpret the movement’s map
+
+We want the AI to interpret place through a **physical** lens and, where possible, **cultural, social, economic, and historical** lenses so suggestions feel grounded and relevant.
+
+**What we can use today (no new data pipelines):**  
+- **Movement + ideas:** name, description, tags, city, state, existing idea titles/descriptions and their locations.  
+- **Reverse geocode (Mapbox):** for a click point, address and neighborhood/place name.  
+- **Our own DB:** ideas (and movements) in a bbox or same city — so “this movement already has ideas A, B here” and “other movements have C, D here.”  
+- **LLM general knowledge:** the model can reason about “New Orleans, Mid-City,” “food justice,” “community garden” and suggest culturally and contextually relevant ideas even without structured civic data.
+
+**What would strengthen suggestions (later; e.g. Feature 6 — Location Intelligence):**  
+- **Physical:** Zoning, land use, parcels (if we add a data source).  
+- **Economic / demographic:** Census tract (or block group) stats: income, tenure, vacancy, household composition — so we can say “lower-income, renter-heavy area” or “food desert” in the prompt.  
+- **Social / cultural:** No standard single API; we could add city/county open data (e.g. “cultural districts,” “historic neighborhoods”) or nonprofit datasets later.  
+- **Historical:** Same — open data or narrative summaries if we ever add them.
+
+**Practical v1:**  
+- **Required:** Movement (1) + place (2) + existing ideas in area (3).  
+- **In the prompt:** Include reverse-geocoded **address and neighborhood** for the click point (or “Movement footprint: city X, ideas in neighborhoods A, B, C”).  
+- **Cultural/social/economic/historical:** Rely on the LLM’s general knowledge plus the movement’s own tags and descriptions; optionally add one or two Census or open-data fields later (e.g. “tract median income”) when we have a Location Intelligence layer.
+
+---
+
+### Implementation (unchanged)
+
+- **Data model:** None. Context = movement + nearby ideas (bbox query) + reverse geocode for click point.
+- **Backend:** `POST /api/ai/ideas/suggest` — body `{ movementId, latitude?, longitude?, address?, neighborhood? }`. If no lat/lng, use movement’s city/state + bbox of its ideas. Load movement and its ideas; query ideas in ~2km bbox (and optionally other movements’ ideas in bbox); reverse-geocode if lat/lng provided; build context string; LLM returns JSON `{ suggestions: [{ title, description }] }`.
+- **Frontend:** Movement view: “Suggest ideas” button; or CreateModal when type idea + initialCoordinates: on open or “Get suggestions” call API; show suggestion cards; click one to fill title/description.
+- **Steps:** 1) Add suggest route: load movement + ideas, bbox query, optional reverse geocode, build prompt with inputs above. 2) Frontend: “Suggest ideas” + CreateModal idea flow, populate form from selection.
 
 ---
 

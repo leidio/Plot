@@ -71,11 +71,13 @@ router.get('/', async (req, res) => {
     }
 
     if (!type || type === 'ideas') {
+      const searchTerms = q.toLowerCase().trim();
       results.ideas = await prisma.idea.findMany({
         where: {
           OR: [
             { title: { contains: q, mode: 'insensitive' } },
-            { description: { contains: q, mode: 'insensitive' } }
+            { description: { contains: q, mode: 'insensitive' } },
+            { movement: { isActive: true, tags: { hasSome: [searchTerms] } } }
           ]
         },
         take: 50,

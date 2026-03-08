@@ -6,6 +6,8 @@ const MOVEMENT_SOURCE_ID = 'movements-source';
 const MOVEMENT_CLUSTER_LAYER_ID = 'movements-clusters';
 const MOVEMENT_CLUSTER_COUNT_LAYER_ID = 'movements-cluster-count';
 const MOVEMENT_UNCLUSTERED_LAYER_ID = 'movements-unclustered';
+const MOVEMENT_POLYGON_SOURCE_ID = 'movements-polygons-source';
+const MOVEMENT_POLYGON_LAYER_ID = 'movements-polygons';
 
 const fitMapToMovements = (mapInstance, features, showSearch) => {
   if (!mapInstance || features.length === 0) {
@@ -41,6 +43,12 @@ const removeMovementLayers = (mapInstance) => {
     return;
   }
 
+  if (mapInstance.getLayer(MOVEMENT_POLYGON_LAYER_ID)) {
+    mapInstance.removeLayer(MOVEMENT_POLYGON_LAYER_ID);
+  }
+  if (mapInstance.getSource(MOVEMENT_POLYGON_SOURCE_ID)) {
+    mapInstance.removeSource(MOVEMENT_POLYGON_SOURCE_ID);
+  }
   if (mapInstance.getLayer(MOVEMENT_CLUSTER_COUNT_LAYER_ID)) {
     mapInstance.removeLayer(MOVEMENT_CLUSTER_COUNT_LAYER_ID);
   }
@@ -53,6 +61,41 @@ const removeMovementLayers = (mapInstance) => {
   if (mapInstance.getSource(MOVEMENT_SOURCE_ID)) {
     mapInstance.removeSource(MOVEMENT_SOURCE_ID);
   }
+};
+
+/** Build a FeatureCollection of polygon features for movements that have a boundary. */
+const createPolygonFeatureCollection = (movements = []) => {
+  const lookup = new Map();
+  const features = movements
+    .map((movement, index) => {
+      const boundary = movement?.boundary;
+      if (!boundary?.coordinates || !Array.isArray(boundary.coordinates)) {
+        return null;
+      }
+      if (movement?.id) {
+        lookup.set(movement.id, movement);
+      }
+      return {
+        type: 'Feature',
+        properties: {
+          movementId: movement?.id || '',
+          movementIndex: index
+        },
+        geometry: {
+          type: 'Polygon',
+          coordinates: boundary.coordinates
+        }
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    lookup,
+    featureCollection: {
+      type: 'FeatureCollection',
+      features
+    }
+  };
 };
 
 const createFeatureCollection = (movements = []) => {
@@ -175,29 +218,55 @@ export const useMovementMarkers = ({
       detachHandlers.length = 0;
       removeMovementLayers(mapInstance);
 
-      // Recreate featureCollection from current movements to ensure we have latest data
-      // This is important because featureCollection in closure might be stale
       const currentCollection = createFeatureCollection(movements);
+      const polygonCollection = createPolygonFeatureCollection(movements);
       currentLookup = currentCollection.lookup;
-      
-      if (!currentCollection.featureCollection || !currentCollection.featureCollection.features || !currentCollection.featureCollection.features.length) {
-        console.warn('[useMovementMarkers] No valid movement coordinates to display.', { 
-          movementsCount: movements?.length || 0,
-          featuresCount: currentCollection.featureCollection?.features?.length || 0
+      polygonCollection.lookup.forEach((m, id) => currentLookup.set(id, m));
+
+      const hasPoints = currentCollection.featureCollection?.features?.length > 0;
+      const hasPolygons = polygonCollection.featureCollection?.features?.length > 0;
+      if (!hasPoints && !hasPolygons) {
+        console.warn('[useMovementMarkers] No valid movement coordinates or boundaries to display.', {
+          movementsCount: movements?.length || 0
         });
         return;
       }
-      
-      const currentFeatureCollection = currentCollection.featureCollection;
 
       try {
-        // Double-check style is ready before adding source
         const style = mapInstance.getStyle();
         if (!style || !style.sources) {
           console.warn('[useMovementMarkers] Style not ready, cannot add source');
           return;
         }
-        
+
+        if (hasPolygons) {
+          if (mapInstance.getSource(MOVEMENT_POLYGON_SOURCE_ID)) {
+            mapInstance.getSource(MOVEMENT_POLYGON_SOURCE_ID).setData(polygonCollection.featureCollection);
+          } else {
+            mapInstance.addSource(MOVEMENT_POLYGON_SOURCE_ID, {
+              type: 'geojson',
+              data: polygonCollection.featureCollection
+            });
+          }
+          if (!mapInstance.getLayer(MOVEMENT_POLYGON_LAYER_ID)) {
+            mapInstance.addLayer({
+              id: MOVEMENT_POLYGON_LAYER_ID,
+              type: 'fill',
+              source: MOVEMENT_POLYGON_SOURCE_ID,
+              paint: {
+                'fill-color': '#16a34a',
+                'fill-opacity': 0.25,
+                'fill-outline-color': '#16a34a'
+              }
+            });
+          }
+        }
+
+        if (!hasPoints) {
+          return;
+        }
+
+        const currentFeatureCollection = currentCollection.featureCollection;
         if (mapInstance.getSource(MOVEMENT_SOURCE_ID)) {
           mapInstance.getSource(MOVEMENT_SOURCE_ID).setData(currentFeatureCollection);
         } else {
@@ -342,10 +411,10 @@ export const useMovementMarkers = ({
           return;
         }
 
-        const position = projectToScreenPosition(
-          mapInstance,
-          feature.geometry?.coordinates || []
-        );
+        const coords = feature.geometry?.type === 'Polygon'
+          ? feature.geometry.coordinates?.[0]?.[0]
+          : feature.geometry?.coordinates;
+        const position = projectToScreenPosition(mapInstance, coords || []);
 
         if (position) {
           setHoveredItem({
@@ -365,6 +434,11 @@ export const useMovementMarkers = ({
       attachHandler('click', MOVEMENT_UNCLUSTERED_LAYER_ID, unclusteredClickHandler);
       attachHandler('mousemove', MOVEMENT_UNCLUSTERED_LAYER_ID, unclusteredMouseMoveHandler);
       attachHandler('mouseleave', MOVEMENT_UNCLUSTERED_LAYER_ID, unclusteredMouseLeaveHandler);
+      if (hasPolygons) {
+        attachHandler('click', MOVEMENT_POLYGON_LAYER_ID, unclusteredClickHandler);
+        attachHandler('mousemove', MOVEMENT_POLYGON_LAYER_ID, unclusteredMouseMoveHandler);
+        attachHandler('mouseleave', MOVEMENT_POLYGON_LAYER_ID, unclusteredMouseLeaveHandler);
+      }
 
       // Don't automatically fit bounds - let the map stay at user's location or default center
       // This prevents overriding the browser geolocation

@@ -56,6 +56,8 @@ const PlotApp = () => {
   const { ideas, setIdeas, loadIdeas } = useIdeas(apiCall);
   const [userLocation, setUserLocation] = useState(null);
   const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState(null);
+  const [mapInitStarted, setMapInitStarted] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [wasSearching, setWasSearching] = useState(false); // Track if we were searching before viewing movement
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -70,7 +72,8 @@ const PlotApp = () => {
   const profileDropdownRef = useRef(null);
   const [isMovementLoading, setIsMovementLoading] = useState(false);
   const [previewMovement, setPreviewMovement] = useState(null);
-  
+  const [returnToMovement, setReturnToMovement] = useState(null);
+
   // WebSocket setup - get token from cookies via API call
   const [wsToken, setWsToken] = useState(null);
   const { socket, isConnected } = useWebSocket(wsToken, true);
@@ -137,16 +140,36 @@ const PlotApp = () => {
   useEffect(() => {
     if (map.current) return;
     if (!mapContainer.current) return;
-    
+    const container = mapContainer.current;
+    const parent = container.parentElement;
+    if (!parent) return;
+
+    // Mapbox needs the container to have non-zero size at creation, or the map can stay blank.
+    // Set parent height now so layout is ready; updateMapHeight will refine it later.
+    const headerHeight = headerRef.current?.offsetHeight ?? 0;
+    const availableHeight = Math.max(200, window.innerHeight - headerHeight);
+    parent.style.height = `${availableHeight}px`;
+
     // Previous isDark-based styles (revert by uncommenting and removing custom style):
     // const initialStyle = isDark ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/streets-v12';
     const initialStyle = 'mapbox://styles/leidio/cmlbfxs1i003101quh2aah4sb';
-    
+
+    setMapInitStarted(true);
+    setMapError(null);
     map.current = new mapboxgl.Map({
-      container: mapContainer.current,
+      container,
       style: initialStyle,
       center: [-90.0715, 29.9511], // Default to New Orleans
       zoom: 12
+    });
+
+    // Resize after layout so Mapbox picks up container dimensions (handles slow layout / flex).
+    const rafId = requestAnimationFrame(() => {
+      map.current?.resize();
+    });
+
+    map.current.on('error', (e) => {
+      setMapError(e.error?.message || 'Map failed to load');
     });
 
     // TEMP: expose map for debugging
@@ -190,6 +213,7 @@ const PlotApp = () => {
 
     const handleLoad = () => {
       setMapReady(true);
+      setMapError(null);
       // Store initial geography so "All Movements" returns here instead of zooming out
       const c = map.current.getCenter();
       initialMapView.current = {
@@ -200,9 +224,12 @@ const PlotApp = () => {
     map.current.on('load', handleLoad);
 
     return () => {
+      cancelAnimationFrame(rafId);
       if (map.current) {
         map.current.off('load', handleLoad);
         map.current.off('style.load', filterPOILayers);
+        map.current.remove();
+        map.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -341,8 +368,43 @@ const PlotApp = () => {
     setSearchQuery('');
     setShowSearch(false);
     setWasSearching(false);
+    setReturnToMovement(null);
     loadMovements();
   }, [setSearchQuery, setShowSearch, setWasSearching, loadMovements]);
+
+  const handleBackFromTagSearch = useCallback(() => {
+    if (!returnToMovement) return;
+    setViewMode('movement-details');
+    setSelectedMovement(returnToMovement.movement);
+    setIdeas(returnToMovement.ideas || []);
+    setSearchQuery('');
+    setShowSearch(false);
+    setReturnToMovement(null);
+  }, [returnToMovement]);
+
+  // Fit map to geographic extent of closest 5 search results when tag/search is active
+  useEffect(() => {
+    if (!map.current || !mapReady || !searchQuery.trim()) return;
+    const mov = searchResults.movements || [];
+    const ide = searchResults.ideas || [];
+    const points = [];
+    mov.slice(0, 5).forEach(m => {
+      if (m.latitude != null && m.longitude != null) points.push([m.longitude, m.latitude]);
+    });
+    ide.slice(0, 5).forEach(i => {
+      if (i.latitude != null && i.longitude != null) points.push([i.longitude, i.latitude]);
+    });
+    const toFit = points.slice(0, 5);
+    if (toFit.length === 0) return;
+    const bounds = new mapboxgl.LngLatBounds();
+    toFit.forEach(p => bounds.extend(p));
+    if (bounds.isEmpty()) return;
+    map.current.fitBounds(bounds, {
+      padding: { top: 130, bottom: 80, left: 80, right: 400 },
+      maxZoom: 12,
+      duration: 800
+    });
+  }, [searchQuery, searchResults.movements, searchResults.ideas, mapReady]);
 
   const handleBackToMovements = useCallback(() => {
     setViewMode('movements');
@@ -508,11 +570,11 @@ const PlotApp = () => {
           }
         }}
         onTagClick={(tag) => {
-          setSearchQuery(tag);
-          if (!showSearch) {
-            setShowSearch(true);
+          if (viewMode === 'movement-details' && selectedMovement) {
+            setReturnToMovement({ movement: selectedMovement, ideas: ideas || [] });
           }
-          // Ensure we're on movements view if we're on a different page
+          setSearchQuery(tag);
+          if (!showSearch) setShowSearch(true);
           if (viewMode === 'movement-details') {
             setViewMode('movements');
             setSelectedMovement(null);
@@ -568,6 +630,26 @@ const PlotApp = () => {
       <div className="flex-1 relative overflow-hidden w-full" style={{ minHeight: 200 }}>
         <div ref={mapContainer} className="absolute inset-0 z-0" style={{ width: '100%', height: '100%' }} />
 
+        {mapInitStarted && !mapReady && !mapError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-800/90 z-[1]" aria-live="polite">
+            <div className="flex flex-col items-center gap-3 text-gray-600 dark:text-gray-300">
+              <div className="w-10 h-10 border-2 border-gray-300 border-t-gray-600 dark:border-gray-500 dark:border-t-gray-200 rounded-full animate-spin" />
+              <p className="text-sm font-medium">Loading map…</p>
+              <p className="text-xs opacity-80">Slow connection? This may take a moment.</p>
+            </div>
+          </div>
+        )}
+
+        {mapError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-800/95 z-[1] p-4" role="alert">
+            <div className="flex flex-col items-center gap-3 text-center max-w-sm">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Map couldn’t load</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400">{mapError}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-500">Check your connection and refresh the page.</p>
+            </div>
+          </div>
+        )}
+
         {viewMode === 'movement-details' && selectedMovement ? (
           <>
             {isMovementLoading && (
@@ -607,6 +689,7 @@ const PlotApp = () => {
               setWasSearching(false);
             }}
             onTagClick={(tag) => {
+              setReturnToMovement({ movement: selectedMovement, ideas: ideas || [] });
               setViewMode('movements');
               setSelectedMovement(null);
               setIdeas([]);
@@ -633,24 +716,24 @@ const PlotApp = () => {
             markersRef={movementMarkersRef}
             movements={filteredMovements}
             searchResults={searchResults}
-                  isSearching={isSearching}
+            isSearching={isSearching}
             searchQuery={searchQuery}
             onSearchChange={(value) => {
               setSearchQuery(value);
-              if (!showSearch) {
-                setShowSearch(true);
-              }
+              if (!showSearch) setShowSearch(true);
               if (viewMode === 'movement-details' && value.trim()) {
                 setViewMode('movements');
                 setSelectedMovement(null);
                 setIdeas([]);
               }
             }}
-                  onMovementSelect={handleMovementSelect}
-                  onIdeaSelect={handleIdeaSelect}
+            onMovementSelect={handleMovementSelect}
+            onIdeaSelect={handleIdeaSelect}
             showSearch={showSearch}
             onClearSearch={handleClearSearch}
             setPreviewMovement={setPreviewMovement}
+            returnToMovement={returnToMovement}
+            onBackFromTagSearch={handleBackFromTagSearch}
           />
         )}
       </div>
@@ -662,6 +745,11 @@ const PlotApp = () => {
           onViewFullPage={async () => {
             setPreviewMovement(null);
             await handleMovementSelect(previewMovement);
+          }}
+          onTagClick={(tag) => {
+            setPreviewMovement(null);
+            setSearchQuery(tag);
+            setShowSearch(true);
           }}
         />
       )}
@@ -714,6 +802,7 @@ const PlotApp = () => {
           type={createType}
           movement={selectedMovement}
           initialCoordinates={clickedCoordinates}
+          mapRef={map}
           apiCall={apiCall}
           onClose={() => {
             setShowCreateModal(false);

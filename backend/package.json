@@ -19,6 +19,9 @@
   "license": "MIT",
   "dependencies": {
     "@prisma/client": "^5.7.0",
+    "@turf/area": "^7.3.4",
+    "@turf/bbox": "^7.3.4",
+    "@turf/centroid": "^7.3.4",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

@@ -2,7 +2,7 @@ import React from 'react';
 import { Users, MapPin, Lightbulb, Heart, DollarSign } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 
-const SearchResultsPanel = ({ searchQuery, results, isSearching, onMovementSelect, onIdeaSelect, onClear }) => {
+const SearchResultsPanel = ({ searchQuery, results, isSearching, onMovementSelect, onIdeaSelect, onClear, returnToMovement, onBackFromTagSearch, onTagClick }) => {
   const { isDark } = useTheme();
   const movementsCount = results.movements?.length || 0;
   const ideasCount = results.ideas?.length || 0;
@@ -10,6 +10,15 @@ const SearchResultsPanel = ({ searchQuery, results, isSearching, onMovementSelec
 
   return (
     <div className="p-4">
+      {returnToMovement?.movement && (
+        <button
+          type="button"
+          onClick={onBackFromTagSearch}
+          className={`mb-4 w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600' : 'border-gray-300 bg-gray-50 text-gray-800 hover:bg-gray-100'}`}
+        >
+          ← Back to {returnToMovement.movement.name}
+        </button>
+      )}
       <div className="mb-4 flex items-start justify-between">
         <div>
           <h2 className={`text-lg font-semibold mb-2 ${isDark ? 'text-gray-200' : ''}`}>Search Results</h2>
@@ -72,14 +81,16 @@ const SearchResultsPanel = ({ searchQuery, results, isSearching, onMovementSelec
                       <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{movement.city}, {movement.state}</span>
                     </div>
                     {movement.tags && movement.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
+                      <div className="flex flex-wrap gap-1 mt-2" onClick={e => e.stopPropagation()}>
                         {movement.tags.map(tag => (
-                          <span
+                          <button
                             key={tag}
-                            className={`text-xs px-2 py-1 rounded ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}
+                            type="button"
+                            onClick={() => onTagClick && onTagClick(tag)}
+                            className={`text-xs px-2 py-1 rounded ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                           >
                             {tag}
-                          </span>
+                          </button>
                         ))}
                       </div>
                     )}

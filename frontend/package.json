@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mapbox/mapbox-gl-draw": "^1.5.1",
     "axios": "^1.13.2",
     "daisyui": "^5.5.5",
     "lucide-react": "^0.553.0",

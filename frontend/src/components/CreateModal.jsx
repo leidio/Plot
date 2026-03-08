@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import mapboxgl from 'mapbox-gl';
-import { X, Image as ImageIcon, Upload, Sparkles } from 'lucide-react';
+import { X, Image as ImageIcon, Upload, Sparkles, MapPin } from 'lucide-react';
+import MapboxDraw from '@mapbox/mapbox-gl-draw';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 import { useTheme } from '../hooks/useTheme';
 
 const DESCRIPTION_MAX_LENGTH = 2000;
 
-const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, apiCall }) => {
+const CreateModal = ({ type, movement, initialCoordinates, mapRef, onClose, onSuccess, apiCall }) => {
   const { isDark } = useTheme();
+  const isMovement = type === 'movement';
+  const [creationStep, setCreationStep] = useState(isMovement ? 'location' : 'details');
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -21,6 +26,12 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
   const [locationSuggestions, setLocationSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
+  const [locationMode, setLocationMode] = useState('search'); // 'search' | 'draw'
+  const [drawnBoundary, setDrawnBoundary] = useState(null);   // GeoJSON polygon or null
+  const [boundaryCity, setBoundaryCity] = useState('');
+  const [boundaryState, setBoundaryState] = useState('');
+  const [boundaryPlaceName, setBoundaryPlaceName] = useState('');
+  const [boundaryGeocoding, setBoundaryGeocoding] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reverseGeocodedAddress, setReverseGeocodedAddress] = useState('');
@@ -39,6 +50,119 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
   const coverImageInputRef = useRef(null);
   const aiPopoverRef = useRef(null);
   const popoverJustOpenedRef = useRef(false);
+  const drawMapContainerRef = useRef(null);
+  const drawMapRef = useRef(null);
+  const drawRef = useRef(null);
+  const locationMarkerRef = useRef(null);
+
+  const isLocationSet = () => {
+    if (locationMode === 'search') return !!selectedLocation;
+    return !!drawnBoundary;
+  };
+
+  // Place marker on main map when user selects a search result (movement step 1)
+  useEffect(() => {
+    if (!isMovement || creationStep !== 'location' || locationMode !== 'search' || !selectedLocation || !mapRef?.current) return;
+    const mapInstance = mapRef.current;
+    mapInstance.flyTo({
+      center: [selectedLocation.longitude, selectedLocation.latitude],
+      zoom: Math.max(mapInstance.getZoom(), 12)
+    });
+    if (locationMarkerRef.current) {
+      locationMarkerRef.current.remove();
+      locationMarkerRef.current = null;
+    }
+    const el = document.createElement('div');
+    el.className = 'movement-create-marker';
+    el.style.width = '24px';
+    el.style.height = '24px';
+    el.style.borderRadius = '50%';
+    el.style.backgroundColor = '#16a34a';
+    el.style.border = '2px solid white';
+    el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
+    const marker = new mapboxgl.Marker({ element: el })
+      .setLngLat([selectedLocation.longitude, selectedLocation.latitude])
+      .addTo(mapInstance);
+    locationMarkerRef.current = marker;
+    return () => {
+      if (locationMarkerRef.current) {
+        locationMarkerRef.current.remove();
+        locationMarkerRef.current = null;
+      }
+    };
+  }, [isMovement, creationStep, locationMode, selectedLocation, mapRef]);
+
+  // Draw on main map when movement step 1 and draw mode
+  useEffect(() => {
+    if (!isMovement || creationStep !== 'location' || locationMode !== 'draw' || !mapRef?.current) return;
+    const mapInstance = mapRef.current;
+    let loadListener = null;
+    const cleanupRef = { current: () => {} };
+
+    const addDrawControl = () => {
+      if (drawRef.current) return;
+      const draw = new MapboxDraw({
+        displayControlsDefault: false,
+        controls: { polygon: true, trash: true }
+      });
+      mapInstance.addControl(draw, 'top-left');
+      drawRef.current = draw;
+      const onDrawUpdate = () => {
+        const features = draw.getAll();
+        const polygon = features.features.find(f => f.geometry?.type === 'Polygon');
+        if (polygon) {
+          setDrawnBoundary(polygon.geometry);
+          reverseGeocodeBoundary(polygon.geometry);
+        } else {
+          setDrawnBoundary(null);
+          setBoundaryCity('');
+          setBoundaryState('');
+          setBoundaryPlaceName('');
+        }
+      };
+      mapInstance.on('draw.create', onDrawUpdate);
+      mapInstance.on('draw.update', onDrawUpdate);
+      mapInstance.on('draw.delete', onDrawUpdate);
+      cleanupRef.current = () => {
+        mapInstance.off('draw.create', onDrawUpdate);
+        mapInstance.off('draw.update', onDrawUpdate);
+        mapInstance.off('draw.delete', onDrawUpdate);
+        if (drawRef.current) {
+          try {
+            mapInstance.removeControl(drawRef.current);
+          } catch (_) {}
+          drawRef.current = null;
+        }
+      };
+    };
+
+    if (mapInstance.getStyle()?.sources) {
+      addDrawControl();
+    } else {
+      loadListener = () => addDrawControl();
+      mapInstance.once('load', loadListener);
+    }
+    return () => {
+      cleanupRef.current();
+      if (loadListener) {
+        mapInstance.off('load', loadListener);
+      }
+    };
+  }, [isMovement, creationStep, locationMode, mapRef]);
+
+  // Cleanup marker and draw when modal closes
+  useEffect(() => {
+    return () => {
+      if (locationMarkerRef.current) {
+        locationMarkerRef.current.remove();
+        locationMarkerRef.current = null;
+      }
+      if (mapRef?.current && drawRef.current) {
+        mapRef.current.removeControl(drawRef.current);
+        drawRef.current = null;
+      }
+    };
+  }, [mapRef]);
 
   useEffect(() => {
     if (initialCoordinates && type === 'idea') {
@@ -102,6 +226,51 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
         setLocationSuggestions([]);
       }
     }, 300);
+  };
+
+  const polygonCentroid = (geometry) => {
+    const coords = geometry?.coordinates?.[0];
+    if (!Array.isArray(coords) || coords.length < 3) return null;
+    let sumLng = 0, sumLat = 0, n = 0;
+    for (const p of coords) {
+      const [lng, lat] = Array.isArray(p) ? p : [p?.lng ?? p?.x, p?.lat ?? p?.y];
+      if (typeof lng === 'number' && typeof lat === 'number') {
+        sumLng += lng; sumLat += lat; n++;
+      }
+    }
+    if (n === 0) return null;
+    return [sumLng / n, sumLat / n];
+  };
+
+  const reverseGeocodeBoundary = async (geometry) => {
+    const center = polygonCentroid(geometry);
+    if (!center) return;
+    setBoundaryGeocoding(true);
+    setBoundaryCity('');
+    setBoundaryState('');
+    setBoundaryPlaceName('');
+    try {
+      const response = await axios.get(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${center[0]},${center[1]}.json`,
+        {
+          params: {
+            access_token: mapboxgl.accessToken,
+            limit: 1,
+            types: 'place,locality,neighborhood,postcode,region'
+          }
+        }
+      );
+      if (response.data.features?.length > 0) {
+        const parsed = parseLocation(response.data.features[0]);
+        setBoundaryCity(parsed.city || '');
+        setBoundaryState(parsed.state || '');
+        setBoundaryPlaceName(parsed.fullName || '');
+      }
+    } catch (err) {
+      console.error('Reverse geocode boundary error:', err);
+    } finally {
+      setBoundaryGeocoding(false);
+    }
   };
 
   const parseLocation = (feature) => {
@@ -214,30 +383,49 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
 
     try {
       if (type === 'movement') {
-        if (!formData.name || !formData.description || !selectedLocation) {
-          setError('Please fill in all required fields and select a location from the suggestions');
-          setLoading(false);
-          return;
-        }
-
         const tags = formData.tags
           ? formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag)
           : [];
 
-        const response = await apiCall('post', '/movements', {
-          name: formData.name,
-          description: formData.description,
-          city: selectedLocation.city,
-          state: selectedLocation.state,
-          latitude: selectedLocation.latitude,
-          longitude: selectedLocation.longitude,
-          tags
-        });
-
-        if (response.data.movement) {
-          onSuccess();
+        if (locationMode === 'draw') {
+          if (!formData.name || !formData.description || !drawnBoundary || !boundaryCity.trim() || !boundaryState.trim()) {
+            setError('Please fill in name, description, draw a boundary on the map, and enter city and state.');
+            setLoading(false);
+            return;
+          }
+          const response = await apiCall('post', '/movements', {
+            name: formData.name,
+            description: formData.description,
+            city: boundaryCity.trim(),
+            state: boundaryState.trim(),
+            boundary: drawnBoundary,
+            tags
+          });
+          if (response.data.movement) {
+            onSuccess();
+          } else {
+            throw new Error('Failed to create movement');
+          }
         } else {
-          throw new Error('Failed to create movement');
+          if (!formData.name || !formData.description || !selectedLocation) {
+            setError('Please fill in all required fields and select a location from the suggestions');
+            setLoading(false);
+            return;
+          }
+          const response = await apiCall('post', '/movements', {
+            name: formData.name,
+            description: formData.description,
+            city: selectedLocation.city,
+            state: selectedLocation.state,
+            latitude: selectedLocation.latitude,
+            longitude: selectedLocation.longitude,
+            tags
+          });
+          if (response.data.movement) {
+            onSuccess();
+          } else {
+            throw new Error('Failed to create movement');
+          }
         }
       } else if (type === 'idea') {
         if (!formData.name || !formData.description || !movement) {
@@ -322,6 +510,11 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
         text: formData.description,
         title: formData.name
       };
+      if (actionType === 'suggest_tags') {
+        payload.location = selectedLocation
+          ? `${selectedLocation.city}, ${selectedLocation.state}`
+          : (formData.location || '');
+      }
       const response = await apiCall('post', '/ai/improve', payload);
       const data = response.data;
 
@@ -346,6 +539,9 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
         const tasks = data.tasks || [];
         setDraftTasks(tasks);
         setAiResult({ tasks });
+      } else if (actionType === 'suggest_tags') {
+        setAiResultType('suggest_tags');
+        setAiResult({ tags: data.tags || [] });
       }
     } catch (err) {
       const msg = err.response?.data?.error?.message || err.message || 'AI request failed';
@@ -421,12 +617,144 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
     </div>
   );
 
+  // Step 1: Where do you want your movement? (map stays visible)
+  if (isMovement && creationStep === 'location') {
+    return (
+      <>
+        <div className="fixed inset-0 z-40 pointer-events-none" aria-hidden />
+        <div className={`fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl shadow-xl ${isDark ? 'bg-gray-800' : 'bg-white'} border-t border-gray-200 dark:border-gray-700 max-h-[45vh] flex flex-col`}>
+          <div className="p-4 flex-shrink-0 border-b border-gray-200 dark:border-gray-700">
+            <h2 className={`text-lg font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
+              Where do you want your movement?
+            </h2>
+            <p className={`text-sm mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              Search for a place or draw a boundary on the map. You can pan and zoom the map as usual.
+            </p>
+          </div>
+          <div className="p-4 space-y-3 overflow-y-auto">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setLocationMode('search');
+                  setDrawnBoundary(null);
+                  setBoundaryCity('');
+                  setBoundaryState('');
+                  setBoundaryPlaceName('');
+                }}
+                className={`px-3 py-2 rounded-lg text-sm font-medium ${locationMode === 'search' ? (isDark ? 'bg-green-600 text-white' : 'bg-green-500 text-white') : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300')}`}
+              >
+                Search location
+              </button>
+              <button
+                type="button"
+                onClick={() => { setLocationMode('draw'); setSelectedLocation(null); }}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium ${locationMode === 'draw' ? (isDark ? 'bg-green-600 text-white' : 'bg-green-500 text-white') : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300')}`}
+              >
+                <MapPin className="w-4 h-4" />
+                Draw boundary on map
+              </button>
+            </div>
+            {locationMode === 'search' ? (
+              <div className="relative" ref={locationInputRef}>
+                <input
+                  type="text"
+                  placeholder="Address, neighborhood, city, or ZIP"
+                  value={formData.location}
+                  onChange={(e) => handleLocationChange(e.target.value)}
+                  onFocus={() => formData.location && setShowSuggestions(true)}
+                  className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
+                  autoComplete="off"
+                />
+                {showSuggestions && locationSuggestions.length > 0 && (
+                  <div
+                    ref={suggestionsRef}
+                    className={`absolute z-[60] w-full mt-1 ${isDark ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} border rounded-lg shadow-lg max-h-52 overflow-y-auto`}
+                  >
+                    {locationSuggestions.map((feature, index) => (
+                      <button
+                        key={feature.id || index}
+                        type="button"
+                        onClick={() => handleLocationSelect(feature)}
+                        className={`w-full text-left px-4 py-3 ${isDark ? 'hover:bg-gray-600 border-gray-600 text-gray-100' : 'hover:bg-gray-50 border-gray-100'} border-b last:border-b-0 transition-colors`}
+                      >
+                        <div className={`font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{feature.text}</div>
+                        <div className={`text-sm mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                          {feature.place_name?.replace(feature.text + ', ', '')}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {selectedLocation && (
+                  <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Selected: {selectedLocation.city}, {selectedLocation.state}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div>
+                <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  Use the polygon tool on the map (top-left) to draw your area. Click to add points and close the shape. City and state are detected from the drawn area.
+                </p>
+                {drawnBoundary && (
+                  <div className={`mt-2 rounded-lg px-3 py-2 text-sm ${isDark ? 'bg-gray-700/50 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
+                    {boundaryGeocoding ? (
+                      <span>Detecting location…</span>
+                    ) : boundaryPlaceName || boundaryCity || boundaryState ? (
+                      <span>{boundaryPlaceName || `${boundaryCity}, ${boundaryState}`}</span>
+                    ) : (
+                      <span className={isDark ? 'text-amber-400' : 'text-amber-600'}>Could not detect location. Try drawing a larger area or try search instead.</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (locationMode === 'draw' && (!drawnBoundary || !boundaryCity.trim() || !boundaryState.trim())) return;
+                  if (locationMode === 'search' && !selectedLocation) return;
+                  setCreationStep('details');
+                }}
+                disabled={!isLocationSet() || (locationMode === 'draw' && (boundaryGeocoding || !boundaryCity.trim() || !boundaryState.trim()))}
+                className="flex-1 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // Step 2 (details form) or Idea form
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} rounded-lg max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto`}>
-        <h2 className={`text-2xl font-bold mb-4 ${isDark ? 'text-gray-100' : ''}`}>
-          Create {type === 'movement' ? 'Movement' : 'Idea'}
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className={`text-2xl font-bold ${isDark ? 'text-gray-100' : ''}`}>
+            {isMovement ? 'Create movement' : 'Create Idea'}
+          </h2>
+          {isMovement && (
+            <button
+              type="button"
+              onClick={() => setCreationStep('location')}
+              className={`text-sm font-medium ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              ← Change location
+            </button>
+          )}
+        </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Title — floaty when focused */}
           <div className="relative">
@@ -531,46 +859,29 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
                     <button type="button" onClick={() => { setAiResult(null); setAiResultType(null); }} className={`mt-3 text-sm font-medium ${isDark ? 'text-emerald-400 hover:underline' : 'text-emerald-600 hover:underline'}`}>Dismiss</button>
                   </>
                 )}
+                {aiResultType === 'suggest_tags' && aiResult.tags?.length > 0 && (
+                  <>
+                    <p className="text-sm font-medium mb-1">Suggested tags</p>
+                    <p className="text-sm mb-2">{aiResult.tags.join(', ')}</p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => { handleChange('tags', aiResult.tags.join(', ')); setAiResult(null); setAiResultType(null); }} className={`text-sm font-medium px-3 py-1.5 rounded-lg ${isDark ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-emerald-500 text-white hover:bg-emerald-600'}`}>Apply tags</button>
+                      <button type="button" onClick={() => { setAiResult(null); setAiResultType(null); }} className={`text-sm font-medium ${isDark ? 'text-emerald-400 hover:underline' : 'text-emerald-600 hover:underline'}`}>Dismiss</button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
           {type === 'movement' ? (
-            <div className="relative" ref={locationInputRef}>
-              <input
-                type="text"
-                placeholder="Location (neighborhood, city, state) *"
-                value={formData.location}
-                onChange={(e) => handleLocationChange(e.target.value)}
-                onFocus={() => formData.location && setShowSuggestions(true)}
-                className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
-                required
-                autoComplete="off"
-              />
-              {showSuggestions && locationSuggestions.length > 0 && (
-                <div
-                  ref={suggestionsRef}
-                  className={`absolute z-50 w-full mt-1 ${isDark ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} border rounded-lg shadow-lg max-h-60 overflow-y-auto`}
-                >
-                  {locationSuggestions.map((feature, index) => (
-                    <button
-                      key={feature.id || index}
-                      type="button"
-                      onClick={() => handleLocationSelect(feature)}
-                      className={`w-full text-left px-4 py-3 ${isDark ? 'hover:bg-gray-600 border-gray-600 text-gray-100' : 'hover:bg-gray-50 border-gray-100'} border-b last:border-b-0 transition-colors`}
-                    >
-                      <div className={`font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{feature.text}</div>
-                      <div className={`text-sm mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                        {feature.place_name?.replace(feature.text + ', ', '')}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {selectedLocation && (
-                <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Selected: {selectedLocation.city}, {selectedLocation.state}
-                </p>
-              )}
+            <div className={`rounded-lg px-4 py-3 ${isDark ? 'bg-gray-700/50 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
+              <p className="text-sm font-medium">Location</p>
+              <p className="text-sm mt-0.5">
+                {locationMode === 'search' && selectedLocation
+                  ? `${selectedLocation.city}, ${selectedLocation.state}`
+                  : locationMode === 'draw' && boundaryCity && boundaryState
+                    ? `Boundary: ${boundaryCity}, ${boundaryState}`
+                    : '—'}
+              </p>
             </div>
           ) : (
             <>
@@ -689,14 +1000,38 @@ const CreateModal = ({ type, movement, initialCoordinates, onClose, onSuccess, a
             </>
           )}
           {type === 'movement' && (
-            <div>
+            <div className="relative">
               <input
                 type="text"
                 placeholder="Tags (comma-separated, optional)"
                 value={formData.tags}
                 onChange={(e) => handleChange('tags', e.target.value)}
+                onFocus={() => setFocusedAiField('tags')}
+                onBlur={() => setFocusedAiField(prev => prev === 'tags' ? null : prev)}
                 className={`w-full px-4 py-2 ${isDark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'border-gray-300'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
               />
+              {focusedAiField === 'tags' && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => openAiPopover(e, 'tags')}
+                  className={`absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${isDark ? 'bg-emerald-700/80 text-emerald-100 hover:bg-emerald-700' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'}`}
+                  aria-label="Get AI help"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Get AI help
+                </button>
+              )}
+              {aiDropdownOpen && aiAnchorField === 'tags' && (
+                <div ref={aiPopoverRef} className={`absolute left-0 right-0 mt-1 z-[100] rounded-lg border shadow-lg overflow-hidden ${isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'}`}>
+                  <div className="p-3 space-y-2">
+                    <button type="button" disabled={aiLoading} onClick={() => handleAiAction('suggest_tags')} className={`w-full px-3 py-2 rounded-lg text-sm font-medium text-left ${isDark ? 'bg-emerald-700/50 text-emerald-200 hover:bg-emerald-700' : 'bg-emerald-200 text-emerald-900 hover:bg-emerald-300'} disabled:opacity-50`}>
+                      Suggest tags based on title, description & location
+                    </button>
+                    {aiLoading && <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Thinking...</p>}
+                    {aiError && <p className={`text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>{aiError}</p>}
+                  </div>
+                </div>
+              )}
               <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>e.g., sustainability, climate, food justice</p>
             </div>
           )}

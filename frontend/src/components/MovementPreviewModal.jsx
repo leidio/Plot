@@ -2,7 +2,7 @@ import React from 'react';
 import { MapPin, X } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 
-const MovementPreviewModal = ({ movement, onClose, onViewFullPage }) => {
+const MovementPreviewModal = ({ movement, onClose, onViewFullPage, onTagClick }) => {
   const { isDark } = useTheme();
   
   if (!movement) {
@@ -72,12 +72,16 @@ const MovementPreviewModal = ({ movement, onClose, onViewFullPage }) => {
 */}
           {movement.tags && movement.tags.length > 0 && (
             <div className="pt-2 pb-2">
-              {/* <h3 className={`font-medium text-sm mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tags</h3> */}
               <div className="flex flex-wrap gap-2">
                 {movement.tags.map(tag => (
-                  <span key={tag} className={`px-3 py-1 ${isDark ? 'bg-blue-900 text-blue-200' : 'bg-blue-100 text-blue-700'} rounded-lg text-sm`}>
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => onTagClick && onTagClick(tag)}
+                    className={`px-3 py-1 rounded-lg text-sm ${isDark ? 'bg-blue-900 text-blue-200 hover:bg-blue-800' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
+                  >
                     {tag}
-                  </span>
+                  </button>
                 ))}
               </div>
             </div>

@@ -48,6 +48,8 @@ model Movement {
   city        String
   state       String
   country     String   @default("United States")
+  boundary    Json?    // GeoJSON polygon coordinates when user draws boundary on map
+  boundaryBbox Json?   // [minLng, minLat, maxLng, maxLat] for map bounds
   
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
