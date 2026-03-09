@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Menu, X, Moon, Sun, User, LogOut } from 'lucide-react';
+import { Search, Menu, X, Moon, Sun, User, LogOut, Sparkles } from 'lucide-react';
 import plotLogo from '../assets/plot-logo.svg';
 import plotLogoDark from '../assets/plot-logo-dark.svg';
 
@@ -22,7 +22,9 @@ const Header = ({
   searchQuery,
   onSearchChange,
   onTagClick,
-  onClearSearch
+  onClearSearch,
+  showIntelligenceLayer,
+  onToggleIntelligence
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   
@@ -113,15 +115,29 @@ const Header = ({
           </div>
         )}
         
-        {/* Right: Hamburger Menu */}
-        <div className="relative flex-shrink-0" ref={profileDropdownRef}>
-          <button 
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-            aria-label="Open menu"
+        {/* Right: Intelligence toggle + Hamburger Menu */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={() => onToggleIntelligence?.()}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              showIntelligenceLayer
+                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
+            }`}
+            aria-label={showIntelligenceLayer ? 'Turn off Intelligence' : 'Turn on Intelligence'}
+            title="Intelligence: analyze the map or generate movements"
           >
-            <Menu className="w-6 h-6 text-gray-700 dark:text-gray-300" />
+            <Sparkles className="w-4 h-4" />
+            <span className="hidden sm:inline">Intelligence</span>
           </button>
+          <div className="relative" ref={profileDropdownRef}>
+            <button 
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+              aria-label="Open menu"
+            >
+              <Menu className="w-6 h-6 text-gray-700 dark:text-gray-300" />
+            </button>
           
           {menuOpen && (
             <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-2 z-50">
@@ -164,6 +180,7 @@ const Header = ({
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
     </header>

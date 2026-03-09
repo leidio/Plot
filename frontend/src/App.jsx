@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { Heart, Share2, DollarSign, Users, MapPin, Filter, X, Check, ChevronUp, ChevronDown, Lightbulb, Star, Settings, Trash2, Mail, Lock, MessageSquare, Activity } from 'lucide-react';
+import { Heart, Share2, DollarSign, Users, MapPin, Filter, X, Check, ChevronUp, ChevronDown, Lightbulb, Star, Settings, Trash2, Mail, Lock, MessageSquare, Activity, Sparkles } from 'lucide-react';
 import { useTheme } from './hooks/useTheme';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useMovements } from './hooks/useMovements';
@@ -12,6 +12,7 @@ import AuthModal from './components/AuthModal';
 import CreateModal from './components/CreateModal';
 import ProfileModal from './components/ProfileModal';
 import MovementPreviewModal from './components/MovementPreviewModal';
+import IntelligenceModal from './components/IntelligenceModal';
 import Header from './components/Header';
 import axios from 'axios';
 
@@ -73,6 +74,7 @@ const PlotApp = () => {
   const [isMovementLoading, setIsMovementLoading] = useState(false);
   const [previewMovement, setPreviewMovement] = useState(null);
   const [returnToMovement, setReturnToMovement] = useState(null);
+  const [showIntelligenceLayer, setShowIntelligenceLayer] = useState(false);
 
   // WebSocket setup - get token from cookies via API call
   const [wsToken, setWsToken] = useState(null);
@@ -582,6 +584,8 @@ const PlotApp = () => {
           }
         }}
         onClearSearch={handleClearSearch}
+        showIntelligenceLayer={showIntelligenceLayer}
+        onToggleIntelligence={() => setShowIntelligenceLayer(prev => !prev)}
         />
       </div>
 
@@ -818,6 +822,16 @@ const PlotApp = () => {
               loadIdeas(selectedMovement.id);
             }
           }}
+        />
+      )}
+
+      {showIntelligenceLayer && (
+        <IntelligenceModal
+          mapRef={map}
+          mapReady={mapReady}
+          apiCall={apiCall}
+          isDark={isDark}
+          onClose={() => setShowIntelligenceLayer(false)}
         />
       )}
 

@@ -162,4 +162,89 @@ Provide an area summary and 5–8 ideas. Return JSON: { "areaSummary": "2-4 sent
   }
 });
 
+/**
+ * Intelligence layer: analyze a map selection and/or generate movements from a prompt.
+ * POST /api/ai/intelligence  body: { prompt, selection?: { type: 'Point'|'Polygon', coordinates } }
+ */
+function getCentroidFromSelection(selection) {
+  if (!selection || !selection.coordinates) return null;
+  if (selection.type === 'Point' && Array.isArray(selection.coordinates) && selection.coordinates.length >= 2) {
+    return { lng: selection.coordinates[0], lat: selection.coordinates[1] };
+  }
+  if (selection.type === 'Polygon' && Array.isArray(selection.coordinates) && selection.coordinates[0]?.length) {
+    const ring = selection.coordinates[0];
+    let sumLng = 0, sumLat = 0, n = 0;
+    for (const p of ring) {
+      const [lng, lat] = Array.isArray(p) ? p : [p?.lng ?? p?.x, p?.lat ?? p?.y];
+      if (typeof lng === 'number' && typeof lat === 'number') {
+        sumLng += lng; sumLat += lat; n++;
+      }
+    }
+    if (n === 0) return null;
+    return { lng: sumLng / n, lat: sumLat / n };
+  }
+  return null;
+}
+
+router.post('/intelligence', authenticateToken, async (req, res) => {
+  try {
+    const { prompt, selection } = req.body;
+    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+      return res.status(400).json({ error: { message: 'prompt is required' } });
+    }
+
+    const centroid = selection ? getCentroidFromSelection(selection) : null;
+    const selectionContext = centroid
+      ? `The user has selected an area on the map. Center of selection: latitude ${centroid.lat.toFixed(4)}, longitude ${centroid.lng.toFixed(4)}. ${selection.type === 'Polygon' ? 'The selection is a drawn polygon (specific geographic area).' : 'The selection is a single point.'}`
+      : 'The user has not selected an area; they may be asking a general question or to generate movements from description only.';
+
+    const systemPrompt = `You are Plot's Intelligence: an AI that helps users analyze places on a map and generate civic movements.
+
+${selectionContext}
+
+The user's prompt: "${prompt.trim()}"
+
+Respond in JSON with any of these fields as appropriate:
+- "areaSummary" (string): If there is a map selection, provide a 2–4 sentence interpretation of that area (character, opportunities, challenges). Omit if no selection or not relevant.
+- "suggestions" (array): If analyzing an area or the user wants ideas, provide 3–6 items. Each: { "title": string, "description": string }. Omit if not relevant.
+- "movements" (array): If the user wants to generate or suggest movements, provide 2–5 items. Each: { "name": string, "description": string, "city": string, "state": string }. Omit if not relevant.
+- "answer" (string): A short direct answer when the prompt is a question that doesn't need areaSummary/suggestions/movements.
+
+Prioritize the user's intent: analyze selection, suggest ideas, or generate movements. Return only the JSON object.`;
+
+    const raw = await callOpenAI(systemPrompt, prompt.trim(), { json: true });
+    const parsed = JSON.parse(raw);
+
+    const areaSummary = typeof parsed.areaSummary === 'string' ? parsed.areaSummary.trim() : null;
+    const suggestions = Array.isArray(parsed.suggestions)
+      ? parsed.suggestions
+          .filter(s => s && typeof s.title === 'string' && typeof s.description === 'string')
+          .map(s => ({ title: s.title.trim(), description: s.description.trim() }))
+      : null;
+    const movements = Array.isArray(parsed.movements)
+      ? parsed.movements
+          .filter(m => m && typeof m.name === 'string')
+          .map(m => ({
+            name: String(m.name).trim(),
+            description: typeof m.description === 'string' ? m.description.trim() : '',
+            city: typeof m.city === 'string' ? m.city.trim() : '',
+            state: typeof m.state === 'string' ? m.state.trim() : ''
+          }))
+      : null;
+    const answer = typeof parsed.answer === 'string' ? parsed.answer.trim() : null;
+
+    return res.json({
+      ...(areaSummary && { areaSummary }),
+      ...(suggestions && suggestions.length > 0 && { suggestions }),
+      ...(movements && movements.length > 0 && { movements }),
+      ...(answer && { answer })
+    });
+  } catch (err) {
+    console.error('AI intelligence error:', err);
+    const message = err.message || 'Intelligence request failed';
+    const status = message.includes('OPENAI_API_KEY') ? 503 : 500;
+    return res.status(status).json({ error: { message } });
+  }
+});
+
 module.exports = router;
