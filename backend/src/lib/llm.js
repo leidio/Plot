@@ -42,4 +42,44 @@ async function callOpenAI(systemPrompt, userMessage, options = {}) {
   return content;
 }
 
-module.exports = { callOpenAI };
+/**
+ * Chat completion with full messages array (e.g. for Co-Pilot with history).
+ * messages: [{ role: 'system'|'user'|'assistant', content: string }, ...]
+ */
+async function callOpenAIChat(messages, options = {}) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is not set');
+  }
+
+  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+
+  const body = {
+    model,
+    messages,
+    ...(options.json ? { response_format: { type: 'json_object' } } : {})
+  };
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`OpenAI API error: ${res.status} ${err}`);
+  }
+
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (content == null) {
+    throw new Error('Empty or missing response from OpenAI');
+  }
+  return content;
+}
+
+module.exports = { callOpenAI, callOpenAIChat };

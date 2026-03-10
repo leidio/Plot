@@ -18,13 +18,13 @@ This plan defines Plot’s AI features and maps each to the five AI modes: **Gen
 
 ## Feature list (with modes and build order)
 
-### 1. Summarize a movement’s ideas *(moved down; do after Analyze map selection)*
+### 1. Summarize a movement’s ideas — *Next*
 
 **What it does:** For a single movement, AI produces key themes, discussion questions, or a one-page draft from its ideas.
 
 **AI modes:** **Generative** (summary/draft), **Assistive** (helps facilitators).
 
-**Build order:** 4
+**Build order:** 4 *(next)*
 
 ---
 
@@ -42,25 +42,25 @@ This plan defines Plot’s AI features and maps each to the five AI modes: **Gen
 
 ---
 
-### 3. Intelligent Idea Generation Assistant — *Next*
+### 3. Intelligent Idea Generation Assistant — ✅ Done
 
 **What it does:** When a member with idea-creation permission hits "Suggest ideas" (or clicks the map to add an idea), AI suggests project types and starter descriptions that fit the movement and the place — physically, and where possible culturally, socially, economically, and historically.
 
 **AI modes:** **Generative** (suggestions), **Assistive** (reduces friction at point of need).
 
-**Build order:** 2 *(next)*
+**Build order:** 2 *(completed)*
 
 **Inputs (high level):** Movement identity (name, description, tags, city/state, existing ideas); the place(s) tied to the request (click point and/or movement footprint); existing ideas in that area; and any geographic/civic context we can supply (see detailed plan).
 
 ---
 
-### 4. Analyze map selection
+### 4. Analyze map selection — ✅ Done
 
 **What it does:** User draws a region on the map; AI summarizes movements and ideas in that area (“What’s going on here?”, themes, opportunities).
 
 **AI modes:** **Generative** (analysis/summary), **Assistive** (discovery).
 
-**Build order:** 3
+**Build order:** 3 *(completed)*
 
 ---
 
@@ -122,9 +122,9 @@ This plan defines Plot’s AI features and maps each to the five AI modes: **Gen
 ## Build order (implementation sequence)
 
 1. ~~Creation-time support (tasks, content review, suggestions)~~ — **Done**  
-2. **Intelligent Idea Generation** (suggest ideas for movement + place) — **Next**  
-3. Analyze map selection  
-4. Summarize a movement's ideas *(moved down)*  
+2. ~~Intelligent Idea Generation (suggest ideas for movement + place)~~ — **Done**  
+3. ~~Analyze map selection~~ — **Done**  
+4. **Summarize a movement's ideas** — **Next**  
 5. Civic knowledge foundation  
 6. Location Intelligence Layer  
 7. AI Co-Pilot (including agentive actions)
@@ -262,6 +262,10 @@ We want the AI to interpret place through a **physical** lens and, where possibl
 - **Backend:** `GET /api/ai/location/tooltip?lat=&lng=` (tract stats); `GET /api/ai/location/overlays?bbox=` or `.../need?bbox=` (GeoJSON or need scores); `GET /api/ai/movements/:id/impact?metric=` (e.g. food desert %). Data: Census API or heuristics (e.g. "no movements within N km" = underserved).
 - **Frontend:** Tooltip on map hover (throttled); overlay layer from overlays API; "Impact" section in movement view.
 - **Steps:** 1) Tooltip endpoint + hover UI. 2) Underserved heuristic + overlay/panel. 3) One impact metric + backend + frontend.
+
+**How it works technically / when a user needs it:**
+- **Technically:** Backend calls external APIs (e.g. Census) or runs heuristics (e.g. “no movements within N km”) to attach place-based data to lat/lng or bbox. Results are cached (optional table or short TTL). Frontend requests tooltips on hover (throttled) and overlay GeoJSON for the current view; impact is computed per movement (e.g. % of food desert area covered by its ideas).
+- **When a user needs it:** When they’re deciding *where* to focus (e.g. “Where is need highest?”), evaluating *impact* (“How much of the city’s need does our movement cover?”), or exploring the map and wanting quick *place context* (income, tenure, organizations) without leaving the map. It answers “what’s true about this place?” rather than “what’s similar to this idea?”
 
 ---
 

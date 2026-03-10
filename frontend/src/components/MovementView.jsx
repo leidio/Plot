@@ -3,6 +3,7 @@ import { MapPin, ChevronUp, Lightbulb, Check, Plus, Sparkles, X } from 'lucide-r
 import { useIdeaMarkers } from './movement-details/useIdeaMarkers';
 import { usePresence } from '../hooks/usePresence';
 import { useTheme } from '../hooks/useTheme';
+import CoPilot from './CoPilot';
 
 const MovementView = ({
   movement,
@@ -154,21 +155,21 @@ const MovementView = ({
     <div className="absolute inset-0 flex flex-col pointer-events-none">
       <div
         ref={headerRef}
-        className={`pointer-events-auto ${isDark ? 'bg-gray-800' : 'bg-white'} border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} transition-all duration-300 ${
-          headerCollapsed ? 'py-2' : 'py-6'
+        className={`pointer-events-auto ${isDark ? 'bg-gray-800/95' : 'bg-white/95'} backdrop-blur border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} transition-all duration-300 ${
+          headerCollapsed ? 'py-2' : 'py-5'
         }`}
       >
         <div className="max-w-7xl mx-auto px-6">
-          <div className="flex items-start justify-between mb-4">
+          <div className="flex items-start justify-between mb-3">
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
                 <button
                   onClick={onBack}
-                  className={`p-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded-lg`}
+                  className={`p-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded-xl`}
                 >
                   <ChevronUp className={`w-5 h-5 rotate-[-90deg] ${isDark ? 'text-gray-300' : ''}`} />
                 </button>
-                <h1 className={`font-bold ${isDark ? 'text-gray-100' : 'text-gray-900'} ${headerCollapsed ? 'text-xl' : 'text-3xl'}`}>
+                <h1 className={`font-bold tracking-tight ${isDark ? 'text-gray-100' : 'text-gray-900'} ${headerCollapsed ? 'text-xl' : 'text-3xl'}`}>
                   {movement.name}
                 </h1>
               </div>
@@ -176,7 +177,7 @@ const MovementView = ({
                 <div className="flex items-center gap-2 mt-2">
                   <button
                     onClick={() => onLocationClick && onLocationClick(movement.city, movement.state)}
-                    className={`px-3 py-1 ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} rounded-lg text-sm flex items-center gap-1 cursor-pointer`}
+                    className={`px-3 py-1.5 ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} rounded-full text-sm flex items-center gap-1.5 cursor-pointer font-medium`}
                   >
                     <MapPin className="w-4 h-4" />
                     {movement.city}, {movement.state}
@@ -185,7 +186,7 @@ const MovementView = ({
                     <button
                       onClick={handleFollowToggle}
                       disabled={isLoadingFollow}
-                      className={`px-3 py-1 rounded-lg text-sm flex items-center gap-1 transition-colors ${
+                      className={`px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 font-medium transition-colors ${
                         isFollowing
                           ? 'bg-blue-600 text-white hover:bg-blue-700'
                           : isDark
@@ -209,9 +210,9 @@ const MovementView = ({
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               {currentUser && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg">
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${isDark ? 'bg-gray-700/60' : 'bg-gray-100/80'}`}>
                   <div className="flex -space-x-2">
                     {(viewers.length > 0 ? viewers : [{
                       userId: currentUser.id,
@@ -256,18 +257,18 @@ const MovementView = ({
                 </div>
               )}
               {!headerCollapsed && (
-                <div className="flex gap-3">
-                  <div className={`${isDark ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg px-4 py-2 text-center min-w-[100px]`}>
-                    <div className={`text-2xl font-bold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{plottersCount}</div>
-                    <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Plotters</div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className={`${isDark ? 'bg-gray-700/70 border-gray-600' : 'bg-gray-50 border-gray-200'} border rounded-xl px-4 py-2 text-center min-w-[94px]`}>
+                    <div className={`text-xl font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{plottersCount}</div>
+                    <div className={`text-[11px] uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Plotters</div>
                   </div>
-                  <div className={`${isDark ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg px-4 py-2 text-center min-w-[100px]`}>
-                    <div className={`text-2xl font-bold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{locationsCount}</div>
-                    <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Locations</div>
+                  <div className={`${isDark ? 'bg-gray-700/70 border-gray-600' : 'bg-gray-50 border-gray-200'} border rounded-xl px-4 py-2 text-center min-w-[94px]`}>
+                    <div className={`text-xl font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{locationsCount}</div>
+                    <div className={`text-[11px] uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Locations</div>
                   </div>
-                  <div className={`${isDark ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg px-4 py-2 text-center min-w-[100px]`}>
-                    <div className={`text-2xl font-bold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>${(raisedAmount / 100).toLocaleString()}</div>
-                    <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Raised</div>
+                  <div className={`${isDark ? 'bg-gray-700/70 border-gray-600' : 'bg-gray-50 border-gray-200'} border rounded-xl px-4 py-2 text-center min-w-[94px]`}>
+                    <div className={`text-xl font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>${(raisedAmount / 100).toLocaleString()}</div>
+                    <div className={`text-[11px] uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Raised</div>
                   </div>
                 </div>
               )}
@@ -278,7 +279,7 @@ const MovementView = ({
                     contentRef.current.scrollTop = 0;
                   }
                 }}
-                className={`p-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded-lg`}
+                className={`p-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded-xl`}
               >
                 <ChevronUp className={`w-5 h-5 transition-transform ${isDark ? 'text-gray-300' : ''} ${headerCollapsed ? '' : 'rotate-180'}`} />
               </button>
@@ -286,14 +287,14 @@ const MovementView = ({
           </div>
 
           {!headerCollapsed && (
-            <div className="grid grid-cols-2 gap-8 mt-6">
-              <div>
-                <h2 className={`font-semibold text-lg mb-3 ${isDark ? 'text-gray-200' : ''}`}>Overview</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-white/80'}`}>
+                <h2 className={`font-semibold text-base mb-2 ${isDark ? 'text-gray-200' : 'text-gray-900'}`}>Overview</h2>
                 <p className={`leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{movement.description}</p>
               </div>
-              <div>
-                <h2 className={`font-semibold text-lg mb-3 ${isDark ? 'text-gray-200' : ''}`}>Details</h2>
-                <div className={`space-y-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-white/80'}`}>
+                <h2 className={`font-semibold text-base mb-2 ${isDark ? 'text-gray-200' : 'text-gray-900'}`}>Details</h2>
+                <div className={`space-y-2 text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                   <div>
                     <span className="font-medium">Launched:</span> {formatDate(movement.createdAt)}
                   </div>
@@ -307,7 +308,7 @@ const MovementView = ({
                       <button
                         key={tag}
                         onClick={() => onTagClick && onTagClick(tag)}
-                        className={`px-3 py-1 ${isDark ? 'bg-blue-900 text-blue-200 hover:bg-blue-800' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'} rounded-lg text-sm cursor-pointer transition-colors`}
+                        className={`px-3 py-1 ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} rounded-full text-xs font-medium cursor-pointer transition-colors`}
                       >
                         {tag}
                       </button>
@@ -319,19 +320,12 @@ const MovementView = ({
           )}
 
           {!headerCollapsed && currentUser && (
-            <div className="mt-6 space-y-4">
+            <div className="mt-5 space-y-4">
               <div className="flex flex-wrap justify-center gap-3">
-                <button
-                  onClick={onCreateIdea}
-                  className={`${isDark ? 'bg-gray-700 border-gray-600 hover:bg-gray-600 text-gray-200' : 'bg-white border-gray-300 hover:bg-gray-50'} border-2 px-6 py-3 rounded-lg flex items-center gap-2 font-medium`}
-                >
-                  <Lightbulb className="w-5 h-5" />
-                  Add an idea
-                </button>
                 <button
                   onClick={handleSuggestIdeas}
                   disabled={suggestIdeasLoading}
-                  className={`${isDark ? 'bg-emerald-700 border-emerald-600 hover:bg-emerald-600 text-white' : 'bg-emerald-500 border-emerald-600 hover:bg-emerald-600 text-white'} border-2 px-6 py-3 rounded-lg flex items-center gap-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed`}
+                  className={`${isDark ? 'bg-emerald-700 border-emerald-600 hover:bg-emerald-600 text-white' : 'bg-emerald-500 border-emerald-600 hover:bg-emerald-600 text-white'} border px-6 py-2.5 rounded-xl flex items-center gap-2 font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
                   {suggestIdeasLoading ? (
                     <>
@@ -344,6 +338,13 @@ const MovementView = ({
                       Suggest ideas with AI
                     </>
                   )}
+                </button>
+                <button
+                  onClick={onCreateIdea}
+                  className={`${isDark ? 'bg-gray-700 border-gray-600 hover:bg-gray-600 text-gray-200' : 'bg-white border-gray-300 hover:bg-gray-50'} border px-6 py-2.5 rounded-xl flex items-center gap-2 font-semibold`}
+                >
+                  <Lightbulb className="w-5 h-5" />
+                  Add an idea
                 </button>
               </div>
               {suggestIdeasError && (
@@ -422,6 +423,14 @@ const MovementView = ({
           </div>
         )}
       </div>
+
+      {currentUser && movement?.ownerId === currentUser.id && apiCall && (
+        <CoPilot
+          movementId={movement.id}
+          movementName={movement.name}
+          apiCall={apiCall}
+        />
+      )}
     </div>
   );
 };

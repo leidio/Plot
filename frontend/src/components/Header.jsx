@@ -27,6 +27,7 @@ const Header = ({
   onToggleIntelligence
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isSearchEngaged, setIsSearchEngaged] = useState(false);
   
   const suggestedTags = [
     'environment',
@@ -73,7 +74,7 @@ const Header = ({
         
         {/* Center: Search bar and tags grouped together (only on home page) */}
         {isHomePage && (
-          <div className="flex flex-col items-center space-y-3 flex-1 max-w-xl mx-8">
+          <div className="flex flex-col items-center flex-1 max-w-xl mx-8">
             {/* Search Bar */}
             <div className="relative w-full">
               <input
@@ -81,6 +82,12 @@ const Header = ({
                 placeholder="Search for movements in your city"
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
+                onFocus={() => setIsSearchEngaged(true)}
+                onBlur={() => {
+                  setTimeout(() => {
+                    if (!searchQuery?.trim()) setIsSearchEngaged(false);
+                  }, 120);
+                }}
                 className="w-full pl-4 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-full focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
               />
               {searchQuery ? (
@@ -95,41 +102,48 @@ const Header = ({
               ) : (
                 <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
               )}
-            </div>
 
-            {/* Tags */}
-            <div className="flex flex-wrap gap-2 justify-center">
-              {suggestedTags.slice(0, 5).map((tag) => (
-                <button
-                  key={tag}
-                  onClick={() => onTagClick(tag)}
-                  className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-full transition-colors"
-                  style={{
-                    color: isDark ? 'rgb(209, 213, 219)' : 'rgb(55, 65, 81)'
-                  }}
+              {(isSearchEngaged || !!searchQuery?.trim()) && (
+                <div
+                  className={`absolute left-0 right-0 mt-2 rounded-2xl border shadow-lg px-3 py-2 flex flex-wrap gap-2 justify-center z-20 ${
+                    isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
+                  }`}
                 >
-                  {tag}
-                </button>
-              ))}
+                  {suggestedTags.slice(0, 5).map((tag) => (
+                    <button
+                      key={tag}
+                      onClick={() => onTagClick(tag)}
+                      className="px-3 py-1 text-xs font-medium bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-full transition-colors"
+                      style={{
+                        color: isDark ? 'rgb(209, 213, 219)' : 'rgb(55, 65, 81)'
+                      }}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
         
         {/* Right: Intelligence toggle + Hamburger Menu */}
         <div className="flex items-center gap-1 flex-shrink-0">
-          <button
-            onClick={() => onToggleIntelligence?.()}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-              showIntelligenceLayer
-                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
-            }`}
-            aria-label={showIntelligenceLayer ? 'Turn off Intelligence' : 'Turn on Intelligence'}
-            title="Intelligence: analyze the map or generate movements"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span className="hidden sm:inline">Intelligence</span>
-          </button>
+          {viewMode !== 'movements' && (
+            <button
+              onClick={() => onToggleIntelligence?.()}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                showIntelligenceLayer
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
+              }`}
+              aria-label={showIntelligenceLayer ? 'Turn off Intelligence' : 'Turn on Intelligence'}
+              title="Intelligence: analyze the map or generate movements"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span className="hidden sm:inline">Intelligence</span>
+            </button>
+          )}
           <div className="relative" ref={profileDropdownRef}>
             <button 
               onClick={() => setMenuOpen(!menuOpen)}

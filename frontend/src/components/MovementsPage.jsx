@@ -4,7 +4,7 @@ import SearchResultsPanel from './SearchResultsPanel';
 import HoverPreviewModal from './HoverPreviewModal';
 import { useMovementMarkers } from '../hooks/useMovementMarkers';
 import { useTheme } from '../hooks/useTheme';
-import { List, X } from 'lucide-react';
+import { List, X, Sparkles } from 'lucide-react';
 
 const MovementsPage = ({
   mapRef,
@@ -20,7 +20,9 @@ const MovementsPage = ({
   onClearSearch,
   setPreviewMovement,
   returnToMovement,
-  onBackFromTagSearch
+  onBackFromTagSearch,
+  showIntelligenceLayer,
+  onToggleIntelligence
 }) => {
   const [hoveredItem, setHoveredItem] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -38,17 +40,28 @@ const MovementsPage = ({
 
   return (
     <>
-      {/* Floating "Explore movements" pill button */}
-      {sidebarCollapsed && (
-        <button
-          onClick={() => setSidebarCollapsed(false)}
-          className="absolute right-4 top-4 pointer-events-auto flex items-center space-x-2 bg-white dark:bg-gray-800 px-4 py-2 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 hover:shadow-xl transition-shadow"
-        >
-          <List className={`w-5 h-5 ${isDark ? 'text-gray-300' : 'text-gray-600'}`} />
-          <span className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
-            Explore movements
-          </span>
-        </button>
+      {/* Floating pills: Explore movements + Intelligence (Intelligence hidden while tray open) */}
+      {sidebarCollapsed && !showIntelligenceLayer && (
+        <div className="absolute right-4 top-4 pointer-events-auto flex items-center gap-2">
+          <button
+            onClick={() => setSidebarCollapsed(false)}
+            className="flex items-center space-x-2 bg-white dark:bg-gray-800 px-4 py-2 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 hover:shadow-xl transition-shadow"
+          >
+            <List className={`w-5 h-5 ${isDark ? 'text-gray-300' : 'text-gray-600'}`} />
+            <span className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
+              Explore movements
+            </span>
+          </button>
+          {!showIntelligenceLayer && (
+            <button
+              onClick={onToggleIntelligence}
+              className="flex items-center space-x-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-full shadow-lg transition-shadow"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span className="text-sm font-semibold">Intelligence</span>
+            </button>
+          )}
+        </div>
       )}
 
       {/* Slide-out tray/sidebar */}

@@ -1,6 +1,7 @@
 const express = require('express');
 const { authenticateToken } = require('../middleware/auth');
-const { callOpenAI } = require('../lib/llm');
+const { callOpenAI, callOpenAIChat } = require('../lib/llm');
+const { getSimilarMovements, getSimilarIdeas } = require('../lib/civicKnowledge');
 const prisma = require('../lib/prisma');
 
 const router = express.Router();
@@ -164,7 +165,11 @@ Provide an area summary and 5–8 ideas. Return JSON: { "areaSummary": "2-4 sent
 
 /**
  * Intelligence layer: analyze a map selection and/or generate movements from a prompt.
- * POST /api/ai/intelligence  body: { prompt, selection?: { type: 'Point'|'Polygon', coordinates } }
+ * Threads are persisted per user.
+ * POST /api/ai/intelligence/threads                    body: { selection?, title? }
+ * GET  /api/ai/intelligence/threads
+ * GET  /api/ai/intelligence/threads/:threadId
+ * POST /api/ai/intelligence                            body: { prompt, selection?, threadId? }
  */
 function getCentroidFromSelection(selection) {
   if (!selection || !selection.coordinates) return null;
@@ -186,16 +191,153 @@ function getCentroidFromSelection(selection) {
   return null;
 }
 
+function sanitizeIntelligenceResponse(parsed) {
+  const areaSummary = typeof parsed.areaSummary === 'string' ? parsed.areaSummary.trim() : null;
+  const suggestions = Array.isArray(parsed.suggestions)
+    ? parsed.suggestions
+        .filter((s) => s && typeof s.title === 'string' && typeof s.description === 'string')
+        .map((s) => ({ title: s.title.trim(), description: s.description.trim() }))
+    : null;
+  const movements = Array.isArray(parsed.movements)
+    ? parsed.movements
+        .filter((m) => m && typeof m.name === 'string')
+        .map((m) => ({
+          name: String(m.name).trim(),
+          description: typeof m.description === 'string' ? m.description.trim() : '',
+          city: typeof m.city === 'string' ? m.city.trim() : '',
+          state: typeof m.state === 'string' ? m.state.trim() : ''
+        }))
+    : null;
+  const answer = typeof parsed.answer === 'string' ? parsed.answer.trim() : null;
+
+  return {
+    ...(areaSummary && { areaSummary }),
+    ...(suggestions && suggestions.length > 0 && { suggestions }),
+    ...(movements && movements.length > 0 && { movements }),
+    ...(answer && { answer })
+  };
+}
+
+function formatThreadHistory(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return '';
+  const lines = [];
+  for (const message of messages) {
+    lines.push(`User: ${message.prompt}`);
+    lines.push(`Assistant: ${JSON.stringify(message.response)}`);
+  }
+  return lines.join('\n');
+}
+
+function buildThreadTitle(prompt, fallback = 'Intelligence thread') {
+  if (!prompt || typeof prompt !== 'string') return fallback;
+  const trimmed = prompt.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return fallback;
+  return trimmed.slice(0, 64);
+}
+
+router.post('/intelligence/threads', authenticateToken, async (req, res) => {
+  try {
+    const { selection, title } = req.body || {};
+    const thread = await prisma.intelligenceThread.create({
+      data: {
+        userId: req.user.id,
+        selection: selection || null,
+        title: buildThreadTitle(title, 'New intelligence session')
+      }
+    });
+    return res.status(201).json({ thread });
+  } catch (err) {
+    console.error('Create intelligence thread error:', err);
+    return res.status(500).json({ error: { message: 'Failed to create intelligence thread' } });
+  }
+});
+
+router.get('/intelligence/threads', authenticateToken, async (req, res) => {
+  try {
+    const threads = await prisma.intelligenceThread.findMany({
+      where: { userId: req.user.id },
+      orderBy: { updatedAt: 'desc' },
+      take: 30,
+      include: {
+        _count: { select: { messages: true } },
+        messages: { take: 1, orderBy: { createdAt: 'desc' }, select: { prompt: true, createdAt: true } }
+      }
+    });
+    const payload = threads.map((thread) => ({
+      id: thread.id,
+      title: thread.title || 'Untitled thread',
+      selection: thread.selection,
+      createdAt: thread.createdAt,
+      updatedAt: thread.updatedAt,
+      messageCount: thread._count.messages,
+      lastPrompt: thread.messages[0]?.prompt || null,
+      lastMessageAt: thread.messages[0]?.createdAt || null
+    }));
+    return res.json({ threads: payload });
+  } catch (err) {
+    console.error('List intelligence threads error:', err);
+    return res.status(500).json({ error: { message: 'Failed to load intelligence threads' } });
+  }
+});
+
+router.get('/intelligence/threads/:threadId', authenticateToken, async (req, res) => {
+  try {
+    const { threadId } = req.params;
+    const thread = await prisma.intelligenceThread.findFirst({
+      where: { id: threadId, userId: req.user.id },
+      include: { messages: { orderBy: { createdAt: 'asc' } } }
+    });
+    if (!thread) return res.status(404).json({ error: { message: 'Thread not found' } });
+    return res.json({ thread });
+  } catch (err) {
+    console.error('Get intelligence thread error:', err);
+    return res.status(500).json({ error: { message: 'Failed to load thread' } });
+  }
+});
+
 router.post('/intelligence', authenticateToken, async (req, res) => {
   try {
-    const { prompt, selection } = req.body;
+    const { prompt, selection, threadId } = req.body;
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
       return res.status(400).json({ error: { message: 'prompt is required' } });
     }
 
-    const centroid = selection ? getCentroidFromSelection(selection) : null;
+    let thread = null;
+    if (threadId) {
+      thread = await prisma.intelligenceThread.findFirst({
+        where: { id: threadId, userId: req.user.id }
+      });
+      if (!thread) {
+        return res.status(404).json({ error: { message: 'Thread not found' } });
+      }
+    } else {
+      thread = await prisma.intelligenceThread.create({
+        data: {
+          userId: req.user.id,
+          selection: selection || null,
+          title: buildThreadTitle(prompt, 'New intelligence session')
+        }
+      });
+    }
+
+    if (selection && !thread.selection) {
+      thread = await prisma.intelligenceThread.update({
+        where: { id: thread.id },
+        data: { selection }
+      });
+    }
+
+    const historyMessages = await prisma.intelligenceMessage.findMany({
+      where: { threadId: thread.id },
+      orderBy: { createdAt: 'desc' },
+      take: 8
+    });
+    const threadHistory = formatThreadHistory(historyMessages.reverse());
+    const effectiveSelection = selection || thread.selection;
+
+    const centroid = effectiveSelection ? getCentroidFromSelection(effectiveSelection) : null;
     const selectionContext = centroid
-      ? `The user has selected an area on the map. Center of selection: latitude ${centroid.lat.toFixed(4)}, longitude ${centroid.lng.toFixed(4)}. ${selection.type === 'Polygon' ? 'The selection is a drawn polygon (specific geographic area).' : 'The selection is a single point.'}`
+      ? `The user has selected an area on the map. Center of selection: latitude ${centroid.lat.toFixed(4)}, longitude ${centroid.lng.toFixed(4)}. ${effectiveSelection.type === 'Polygon' ? 'The selection is a drawn polygon (specific geographic area).' : 'The selection is a single point.'}`
       : 'The user has not selected an area; they may be asking a general question or to generate movements from description only.';
 
     const systemPrompt = `You are Plot's Intelligence: an AI that helps users analyze places on a map and generate civic movements.
@@ -210,40 +352,175 @@ Respond in JSON with any of these fields as appropriate:
 - "movements" (array): If the user wants to generate or suggest movements, provide 2–5 items. Each: { "name": string, "description": string, "city": string, "state": string }. Omit if not relevant.
 - "answer" (string): A short direct answer when the prompt is a question that doesn't need areaSummary/suggestions/movements.
 
-Prioritize the user's intent: analyze selection, suggest ideas, or generate movements. Return only the JSON object.`;
+Prioritize the user's intent: analyze selection, suggest ideas, or generate movements.
+Use prior thread context when relevant, but prefer the latest user prompt if there is conflict.
+Return only the JSON object.`;
 
-    const raw = await callOpenAI(systemPrompt, prompt.trim(), { json: true });
+    const contextualPrompt = threadHistory
+      ? `Thread history:\n${threadHistory}\n\nLatest user prompt:\n${prompt.trim()}`
+      : prompt.trim();
+
+    const raw = await callOpenAI(systemPrompt, contextualPrompt, { json: true });
     const parsed = JSON.parse(raw);
+    const responsePayload = sanitizeIntelligenceResponse(parsed);
 
-    const areaSummary = typeof parsed.areaSummary === 'string' ? parsed.areaSummary.trim() : null;
-    const suggestions = Array.isArray(parsed.suggestions)
-      ? parsed.suggestions
-          .filter(s => s && typeof s.title === 'string' && typeof s.description === 'string')
-          .map(s => ({ title: s.title.trim(), description: s.description.trim() }))
-      : null;
-    const movements = Array.isArray(parsed.movements)
-      ? parsed.movements
-          .filter(m => m && typeof m.name === 'string')
-          .map(m => ({
-            name: String(m.name).trim(),
-            description: typeof m.description === 'string' ? m.description.trim() : '',
-            city: typeof m.city === 'string' ? m.city.trim() : '',
-            state: typeof m.state === 'string' ? m.state.trim() : ''
-          }))
-      : null;
-    const answer = typeof parsed.answer === 'string' ? parsed.answer.trim() : null;
+    const message = await prisma.intelligenceMessage.create({
+      data: {
+        threadId: thread.id,
+        prompt: prompt.trim(),
+        response: responsePayload
+      }
+    });
+
+    await prisma.intelligenceThread.update({
+      where: { id: thread.id },
+      data: {
+        title: thread.title || buildThreadTitle(prompt, 'Intelligence thread')
+      }
+    });
 
     return res.json({
-      ...(areaSummary && { areaSummary }),
-      ...(suggestions && suggestions.length > 0 && { suggestions }),
-      ...(movements && movements.length > 0 && { movements }),
-      ...(answer && { answer })
+      threadId: thread.id,
+      threadMessage: {
+        id: message.id,
+        prompt: message.prompt,
+        response: message.response,
+        createdAt: message.createdAt
+      },
+      ...responsePayload
     });
   } catch (err) {
     console.error('AI intelligence error:', err);
     const message = err.message || 'Intelligence request failed';
     const status = message.includes('OPENAI_API_KEY') ? 503 : 500;
     return res.status(status).json({ error: { message } });
+  }
+});
+
+/**
+ * Civic knowledge: similar ideas or movements (no UI; used by AI to enrich context).
+ * GET /api/ai/similar?type=ideas|movements&id=:id&limit=5
+ */
+router.get('/similar', authenticateToken, async (req, res) => {
+  try {
+    const { type, id, limit } = req.query;
+    if (!type || !id) {
+      return res.status(400).json({ error: { message: 'type and id are required' } });
+    }
+    if (type !== 'ideas' && type !== 'movements') {
+      return res.status(400).json({ error: { message: 'type must be ideas or movements' } });
+    }
+
+    const items = type === 'movements'
+      ? await getSimilarMovements(prisma, id, limit)
+      : await getSimilarIdeas(prisma, id, limit);
+
+    return res.json({ items });
+  } catch (err) {
+    console.error('AI similar error:', err);
+    return res.status(500).json({ error: { message: err.message || 'Failed to fetch similar items' } });
+  }
+});
+
+/**
+ * Co-Pilot: chat assistant for movement/idea creators. Context-aware (movement + ideas).
+ * POST /api/ai/copilot  body: { movementId, message, history?, ideaId? }
+ */
+router.post('/copilot', authenticateToken, async (req, res) => {
+  try {
+    const { movementId, message, history = [], ideaId } = req.body;
+    if (!movementId || !message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ error: { message: 'movementId and message are required' } });
+    }
+
+    const movement = await prisma.movement.findFirst({
+      where: { id: movementId },
+      include: {
+        ideas: {
+          take: 30,
+          orderBy: { updatedAt: 'desc' },
+          select: { id: true, title: true, description: true, status: true }
+        }
+      }
+    });
+
+    if (!movement) {
+      return res.status(404).json({ error: { message: 'Movement not found' } });
+    }
+
+    const isMovementOwner = movement.ownerId === req.user.id;
+    let ideaForContext = null;
+    if (ideaId) {
+      ideaForContext = await prisma.idea.findFirst({
+        where: { id: ideaId, movementId },
+        select: { id: true, title: true, description: true, status: true, creatorId: true }
+      });
+    }
+    const isIdeaCreator = ideaForContext && ideaForContext.creatorId === req.user.id;
+    if (!isMovementOwner && !isIdeaCreator) {
+      return res.status(403).json({ error: { message: 'Only the movement or idea creator can use Co-Pilot here' } });
+    }
+
+    let ideaContext = '';
+    if (ideaForContext) {
+      ideaContext = `\nCurrent idea in focus:\n- Title: ${ideaForContext.title}\n- Description: ${(ideaForContext.description || '').slice(0, 500)}${(ideaForContext.description && ideaForContext.description.length > 500) ? '...' : ''}`;
+    }
+
+    const ideasBlob = movement.ideas.length
+      ? movement.ideas.map(i => `- ${i.title}: ${(i.description || '').slice(0, 200)}${(i.description && i.description.length > 200) ? '...' : ''}`).join('\n')
+      : '(No ideas yet)';
+
+    let civicContext = '';
+    try {
+      const [similarMovements, similarIdeas] = await Promise.all([
+        getSimilarMovements(prisma, movement.id, 4),
+        ideaForContext ? getSimilarIdeas(prisma, ideaForContext.id, 3) : Promise.resolve([])
+      ]);
+      if (similarMovements.length > 0) {
+        civicContext += `\nSimilar movements elsewhere on Plot (for reference):\n${similarMovements.map(m => `- ${m.name} (${m.city}, ${m.state}): ${(m.description || '').slice(0, 150)}${(m.description && m.description.length > 150) ? '...' : ''}`).join('\n')}`;
+      }
+      if (similarIdeas.length > 0) {
+        civicContext += `\nSimilar ideas elsewhere on Plot:\n${similarIdeas.map(i => `- ${i.title} (${i.movementName || ''}): ${(i.description || '').slice(0, 120)}${(i.description && i.description.length > 120) ? '...' : ''}`).join('\n')}`;
+      }
+      if (civicContext) civicContext = `\nCivic knowledge (use to suggest what has worked elsewhere):${civicContext}`;
+    } catch (_) {
+      // Non-fatal; Co-Pilot works without civic context
+    }
+
+    const systemPrompt = `You are Plot's Co-Pilot: a helpful assistant for the organizers of the movement "${movement.name}".
+
+Movement: ${movement.name}
+Location: ${movement.city}, ${movement.state}
+Description: ${(movement.description || '').slice(0, 600)}${(movement.description && movement.description.length > 600) ? '...' : ''}
+
+Ideas in this movement:
+${ideasBlob}
+${ideaContext}
+${civicContext}
+
+Help with drafting updates, summarizing comments, suggesting next steps, or answering questions about this movement and its ideas. When relevant, use the "Similar movements/ideas elsewhere on Plot" context to suggest what has worked elsewhere. Be concise and practical. If the user asks to create tasks or post an update, acknowledge it and suggest they use the app's existing actions for now (we'll add one-click actions later).`;
+
+    const historyMessages = Array.isArray(history)
+      ? history
+          .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+          .slice(-12)
+          .map(m => ({ role: m.role, content: m.content }))
+      : [];
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...historyMessages,
+      { role: 'user', content: message.trim() }
+    ];
+
+    const reply = await callOpenAIChat(messages);
+
+    return res.json({ message: reply });
+  } catch (err) {
+    console.error('AI copilot error:', err);
+    const errMessage = err.message || 'Co-Pilot request failed';
+    const status = errMessage.includes('OPENAI_API_KEY') ? 503 : 500;
+    return res.status(status).json({ error: { message: errMessage } });
   }
 });
 

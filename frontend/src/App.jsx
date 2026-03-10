@@ -66,6 +66,7 @@ const PlotApp = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createType, setCreateType] = useState('movement');
   const [clickedCoordinates, setClickedCoordinates] = useState(null);
+  const [aiMovementDraft, setAiMovementDraft] = useState(null);
   const movementMarkersRef = useRef([]);
   const ideaMarkersRef = useRef([]);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
@@ -441,6 +442,19 @@ const PlotApp = () => {
         setShowCreateModal(true);
   }, []);
 
+  const handleCreateMovementFromAI = useCallback((draft, selectionFromAI) => {
+    setAiMovementDraft({
+      name: draft?.name || '',
+      description: draft?.description || '',
+      city: draft?.city || '',
+      state: draft?.state || '',
+      selection: selectionFromAI || null
+    });
+    setCreateType('movement');
+    setShowCreateModal(true);
+    setShowIntelligenceLayer(false);
+  }, []);
+
   const handleMovementSelect = async (movement) => {
     // Track if we were searching before viewing movement
     const wasInSearch = searchQuery.trim().length > 0;
@@ -547,7 +561,7 @@ const PlotApp = () => {
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden" style={{ height: '100vh' }}>
-      <div ref={headerRef}>
+      <div ref={headerRef} className="relative z-[200]">
         <Header
         isDark={isDark}
         toggleTheme={toggleTheme}
@@ -633,6 +647,18 @@ const PlotApp = () => {
 
       <div className="flex-1 relative overflow-hidden w-full" style={{ minHeight: 200 }}>
         <div ref={mapContainer} className="absolute inset-0 z-0" style={{ width: '100%', height: '100%' }} />
+
+        {/* Intelligence mode back button */}
+        {showIntelligenceLayer && viewMode === 'movements' && (
+          <button
+            type="button"
+            onClick={() => setShowIntelligenceLayer(false)}
+            className="absolute left-4 top-4 z-[90] pointer-events-auto flex items-center gap-2 px-4 py-2 rounded-full bg-white/95 dark:bg-gray-900/95 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg"
+          >
+            <span className="-ml-1">&lt;</span>
+            <span>Explore</span>
+          </button>
+        )}
 
         {mapInitStarted && !mapReady && !mapError && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-800/90 z-[1]" aria-live="polite">
@@ -739,6 +765,8 @@ const PlotApp = () => {
             setPreviewMovement={setPreviewMovement}
             returnToMovement={returnToMovement}
             onBackFromTagSearch={handleBackFromTagSearch}
+            showIntelligenceLayer={showIntelligenceLayer}
+            onToggleIntelligence={() => setShowIntelligenceLayer(prev => !prev)}
           />
         )}
       </div>
@@ -807,15 +835,18 @@ const PlotApp = () => {
           type={createType}
           movement={selectedMovement}
           initialCoordinates={clickedCoordinates}
+          initialMovementDraft={aiMovementDraft}
           mapRef={map}
           apiCall={apiCall}
           onClose={() => {
             setShowCreateModal(false);
             setClickedCoordinates(null);
+            setAiMovementDraft(null);
           }}
           onSuccess={() => {
             setShowCreateModal(false);
             setClickedCoordinates(null);
+            setAiMovementDraft(null);
             loadMovements();
             // Reload ideas if viewing a movement
             if (selectedMovement) {
@@ -832,6 +863,7 @@ const PlotApp = () => {
           apiCall={apiCall}
           isDark={isDark}
           onClose={() => setShowIntelligenceLayer(false)}
+          onCreateMovementFromAI={handleCreateMovementFromAI}
         />
       )}
 

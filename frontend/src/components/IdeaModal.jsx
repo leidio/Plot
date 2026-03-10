@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { MapPin, Heart, Share2, Check, Activity, X, MessageSquare, Send, Image as ImageIcon, Upload, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import CoPilot from './CoPilot';
 
 const IdeaModal = ({ idea, onClose, currentUser, onSupport, socket, isConnected, apiCall, onIdeaUpdate }) => {
   const ideaMapContainer = useRef(null);
@@ -703,6 +704,15 @@ const IdeaModal = ({ idea, onClose, currentUser, onSupport, socket, isConnected,
             );
           })()}
         </div>
+      )}
+
+      {currentUser && idea?.creatorId === currentUser.id && idea?.movementId && apiCall && (
+        <CoPilot
+          movementId={idea.movementId}
+          ideaId={idea.id}
+          movementName={idea.movement?.name || idea.title}
+          apiCall={apiCall}
+        />
       )}
     </div>
   );

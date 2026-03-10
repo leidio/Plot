@@ -9,7 +9,7 @@ import { useTheme } from '../hooks/useTheme';
 
 const DESCRIPTION_MAX_LENGTH = 2000;
 
-const CreateModal = ({ type, movement, initialCoordinates, mapRef, onClose, onSuccess, apiCall }) => {
+const CreateModal = ({ type, movement, initialCoordinates, initialMovementDraft, mapRef, onClose, onSuccess, apiCall }) => {
   const { isDark } = useTheme();
   const isMovement = type === 'movement';
   const [creationStep, setCreationStep] = useState(isMovement ? 'location' : 'details');
@@ -60,6 +60,36 @@ const CreateModal = ({ type, movement, initialCoordinates, mapRef, onClose, onSu
     return !!drawnBoundary;
   };
 
+  // Prefill movement details and location from Intelligence draft when provided
+  useEffect(() => {
+    if (type !== 'movement' || !initialMovementDraft) return;
+    setFormData((prev) => ({
+      ...prev,
+      name: initialMovementDraft.name || prev.name,
+      description: initialMovementDraft.description || prev.description,
+      location:
+        prev.location ||
+        [initialMovementDraft.city, initialMovementDraft.state].filter(Boolean).join(', ')
+    }));
+    if (initialMovementDraft.city || initialMovementDraft.state) {
+      setBoundaryCity((prev) => prev || initialMovementDraft.city || '');
+      setBoundaryState((prev) => prev || initialMovementDraft.state || '');
+    }
+    const sel = initialMovementDraft.selection;
+    if (sel?.type === 'Polygon' && sel.coordinates?.length) {
+      setLocationMode('draw');
+      setDrawnBoundary({ type: 'Polygon', coordinates: sel.coordinates });
+    } else if (sel?.type === 'Point' && Array.isArray(sel.coordinates) && sel.coordinates.length >= 2) {
+      setLocationMode('search');
+      setSelectedLocation({
+        longitude: sel.coordinates[0],
+        latitude: sel.coordinates[1],
+        city: initialMovementDraft.city || '',
+        state: initialMovementDraft.state || ''
+      });
+    }
+  }, [type, initialMovementDraft]);
+
   // Place marker on main map when user selects a search result (movement step 1)
   useEffect(() => {
     if (!isMovement || creationStep !== 'location' || locationMode !== 'search' || !selectedLocation || !mapRef?.current) return;
@@ -96,6 +126,7 @@ const CreateModal = ({ type, movement, initialCoordinates, mapRef, onClose, onSu
   useEffect(() => {
     if (!isMovement || creationStep !== 'location' || locationMode !== 'draw' || !mapRef?.current) return;
     const mapInstance = mapRef.current;
+    const initialPolygon = initialMovementDraft?.selection?.type === 'Polygon' ? initialMovementDraft.selection : null;
     let loadListener = null;
     const cleanupRef = { current: () => {} };
 
@@ -107,6 +138,11 @@ const CreateModal = ({ type, movement, initialCoordinates, mapRef, onClose, onSu
       });
       mapInstance.addControl(draw, 'top-left');
       drawRef.current = draw;
+      if (initialPolygon?.coordinates?.length) {
+        try {
+          draw.add({ type: 'Feature', geometry: initialPolygon, properties: {} });
+        } catch (_) {}
+      }
       const onDrawUpdate = () => {
         const features = draw.getAll();
         const polygon = features.features.find(f => f.geometry?.type === 'Polygon');
@@ -148,7 +184,7 @@ const CreateModal = ({ type, movement, initialCoordinates, mapRef, onClose, onSu
         mapInstance.off('load', loadListener);
       }
     };
-  }, [isMovement, creationStep, locationMode, mapRef]);
+  }, [isMovement, creationStep, locationMode, mapRef, initialMovementDraft]);
 
   // Cleanup marker and draw when modal closes
   useEffect(() => {
