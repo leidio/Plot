@@ -691,55 +691,56 @@ const PlotApp = () => {
               </div>
             )}
             <MovementDetailsPage
-            mapRef={map}
-            markersRef={ideaMarkersRef}
-            movement={selectedMovement}
-            ideas={ideas}
-            currentUser={currentUser}
-            socket={socket}
-            isConnected={isConnected}
-            mapReady={mapReady}
-            apiCall={apiCall}
-            onBack={() => {
-              setViewMode('movements');
-              setSelectedMovement(null);
-              setIdeas([]);
-              if (wasSearching) {
+              mapRef={map}
+              markersRef={ideaMarkersRef}
+              movement={selectedMovement}
+              ideas={ideas}
+              currentUser={currentUser}
+              socket={socket}
+              isConnected={isConnected}
+              mapReady={mapReady}
+              apiCall={apiCall}
+              onBack={() => {
+                setViewMode('movements');
+                setSelectedMovement(null);
+                setIdeas([]);
+                if (wasSearching) {
+                  setShowSearch(true);
+                  setWasSearching(false);
+                }
+              }}
+              onIdeaSelect={handleIdeaSelect}
+              onLocationClick={(city, state) => {
+                setViewMode('movements');
+                setSelectedMovement(null);
+                setIdeas([]);
+                setSearchQuery(`${city}, ${state}`);
                 setShowSearch(true);
                 setWasSearching(false);
-              }
-            }}
-            onIdeaSelect={handleIdeaSelect}
-            onLocationClick={(city, state) => {
-              setViewMode('movements');
-              setSelectedMovement(null);
-              setIdeas([]);
-              setSearchQuery(`${city}, ${state}`);
-              setShowSearch(true);
-              setWasSearching(false);
-            }}
-            onTagClick={(tag) => {
-              setReturnToMovement({ movement: selectedMovement, ideas: ideas || [] });
-              setViewMode('movements');
-              setSelectedMovement(null);
-              setIdeas([]);
-              setSearchQuery(tag);
-              setShowSearch(true);
-            }}
-            onFollowChange={async (movementId) => {
-              try {
-                const response = await apiCall('get', `/movements/${movementId}`);
-                if (response.data.movement) {
-                  setSelectedMovement(response.data.movement);
+              }}
+              onTagClick={(tag) => {
+                setReturnToMovement({ movement: selectedMovement, ideas: ideas || [] });
+                setViewMode('movements');
+                setSelectedMovement(null);
+                setIdeas([]);
+                setSearchQuery(tag);
+                setShowSearch(true);
+              }}
+              onFollowChange={async (movementId) => {
+                try {
+                  const response = await apiCall('get', `/movements/${movementId}`);
+                  if (response.data.movement) {
+                    setSelectedMovement(response.data.movement);
+                  }
+                  loadMovements();
+                } catch (error) {
+                  console.error('Error reloading movement:', error);
                 }
-                loadMovements();
-              } catch (error) {
-                console.error('Error reloading movement:', error);
-              }
-            }}
-            onRequestAddIdea={handleRequestAddIdea}
-            loadIdeas={loadIdeas}
-          />
+              }}
+              onRequestAddIdea={handleRequestAddIdea}
+              loadIdeas={loadIdeas}
+              isIdeaOpen={!!selectedIdea}
+            />
           </>
         ) : (
           <MovementsPage
@@ -793,11 +794,7 @@ const PlotApp = () => {
           currentUser={currentUser}
           onClose={() => {
             setSelectedIdea(null);
-            // Ensure we're on the Movement page (if we were viewing a movement)
-            if (viewMode === 'movement-details' && selectedMovement) {
-              // Already on movement page, just close the modal
-            } else if (selectedMovement) {
-              // If we have a selected movement but not in movement-details view, go back to it
+            if (viewMode !== 'movement-details' && selectedMovement) {
               setViewMode('movement-details');
             }
           }}
@@ -807,7 +804,6 @@ const PlotApp = () => {
           apiCall={apiCall}
           onIdeaUpdate={(updatedIdea) => {
             setSelectedIdea(updatedIdea);
-            // Also update in ideas list if viewing movement details
             if (selectedMovement) {
               setIdeas(prevIdeas =>
                 prevIdeas.map(i => i.id === updatedIdea.id ? updatedIdea : i)

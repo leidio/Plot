@@ -23,10 +23,11 @@ const MovementView = ({
   onFollowChange,
   onTagClick,
   apiCall,
-  loadIdeas
+  loadIdeas,
+  isIdeaOpen = false
 }) => {
   const { isDark } = useTheme();
-  const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [isLoadingFollow, setIsLoadingFollow] = useState(false);
   const [suggestIdeasLoading, setSuggestIdeasLoading] = useState(false);
@@ -34,7 +35,6 @@ const MovementView = ({
   const [suggestedIdeas, setSuggestedIdeas] = useState([]);
   const [suggestedAreaSummary, setSuggestedAreaSummary] = useState('');
   const [addingIdeaId, setAddingIdeaId] = useState(null);
-  const headerRef = useRef(null);
   const contentRef = useRef(null);
   const viewers = usePresence({ socket, isConnected, movement, currentUser });
 
@@ -116,29 +116,12 @@ const MovementView = ({
     }
   };
 
-  useEffect(() => {
-    const handleScroll = () => {
-      if (contentRef.current) {
-        const scrollTop = contentRef.current.scrollTop;
-        if (scrollTop > 100 && !headerCollapsed) {
-          setHeaderCollapsed(true);
-        }
-      }
-    };
-
-    const content = contentRef.current;
-    if (content) {
-      content.addEventListener('scroll', handleScroll);
-      return () => content.removeEventListener('scroll', handleScroll);
-    }
-  }, [headerCollapsed]);
-
   useIdeaMarkers({
     mapRef: map,
     markersRef,
     movement,
     ideas,
-    headerCollapsed,
+    headerCollapsed: true,
     onIdeaSelect,
     setHoveredItem
   });
@@ -152,163 +135,323 @@ const MovementView = ({
   };
 
   return (
-    <div className="absolute inset-0 flex flex-col pointer-events-none">
-      <div
-        ref={headerRef}
-        className={`pointer-events-auto ${isDark ? 'bg-gray-800/95' : 'bg-white/95'} backdrop-blur border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} transition-all duration-300 ${
-          headerCollapsed ? 'py-2' : 'py-5'
-        }`}
-      >
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
+    <div className="absolute inset-0 pointer-events-none">
+      {/* Add-idea overlay over the map */}
+      {addIdeaMode && onMapAreaClick && (
+        <div
+          className="absolute inset-0 cursor-crosshair z-[1]"
+          style={{ pointerEvents: 'auto' }}
+          onClick={onMapAreaClick}
+          aria-label="Click map to add idea"
+        />
+      )}
+      {addIdeaMode && currentUser && (
+        <div
+          className={`pointer-events-auto absolute top-4 left-1/2 transform -translate-x-1/2 ${
+            isDark ? 'bg-blue-900 border-blue-700' : 'bg-blue-50 border-blue-200'
+          } border rounded-lg p-3 z-10`}
+        >
+          <p className={`text-sm font-medium mb-1 ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>
+            💡 Add Idea Mode Active
+          </p>
+          <p className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
+            Click anywhere on the map to place your idea at that location
+          </p>
+        </div>
+      )}
+
+      {/* Collapsed movement panel pill */}
+      {panelCollapsed ? (
+        <button
+          type="button"
+          onClick={() => setPanelCollapsed(false)}
+          className={`fixed top-[88px] right-9 z-[101] rounded-full px-4 py-2 text-sm font-semibold shadow-lg flex items-center gap-2 pointer-events-auto ${
+            isDark
+              ? 'bg-gray-900/90 text-gray-100 border border-white/15 hover:bg-gray-800'
+              : 'bg-white/90 text-gray-900 border border-white/70 hover:bg-white'
+          }`}
+          aria-label="Expand movement details"
+        >
+          <ChevronUp className="w-4 h-4 rotate-90" />
+          <span className="truncate max-w-[180px]">{movement.name}</span>
+        </button>
+      ) : !isIdeaOpen ? (
+        <div
+          className={`fixed top-[88px] bottom-9 right-9 z-[101] w-[min(420px,92vw)] rounded-2xl border shadow-[0_30px_80px_-20px_rgba(15,23,42,0.45)] flex flex-col overflow-hidden backdrop-blur-xl pointer-events-auto ${
+            isDark ? 'bg-gray-900/70 border-white/15' : 'bg-white/80 border-white/70'
+          }`}
+        >
+          {/* Panel header */}
+          <div
+            className={`px-4 pt-3 pb-2 flex items-start justify-between gap-3 border-b ${
+              isDark ? 'border-white/10' : 'border-white/70'
+            }`}
+          >
+            <div className="flex-1 min-w-0">
+              <button
+                type="button"
+                onClick={onBack}
+                className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
+                  isDark
+                    ? 'bg-gray-900/70 text-gray-100 hover:bg-gray-800'
+                    : 'bg-white/80 text-gray-800 hover:bg-white'
+                }`}
+              >
+                <ChevronUp className="w-4 h-4 rotate-[-90deg]" />
+                <span>Explore movements</span>
+              </button>
+              <h1
+                className={`mt-3 font-semibold tracking-tight text-xl truncate ${
+                  isDark ? 'text-gray-100' : 'text-gray-900'
+                }`}
+              >
+                {movement.name}
+              </h1>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 <button
-                  onClick={onBack}
-                  className={`p-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded-xl`}
+                  onClick={() => onLocationClick && onLocationClick(movement.city, movement.state)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-pointer ${
+                    isDark
+                      ? 'bg-gray-800 text-gray-200 hover:bg-gray-700'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
                 >
-                  <ChevronUp className={`w-5 h-5 rotate-[-90deg] ${isDark ? 'text-gray-300' : ''}`} />
+                  <MapPin className="w-4 h-4" />
+                  {movement.city}, {movement.state}
                 </button>
-                <h1 className={`font-bold tracking-tight ${isDark ? 'text-gray-100' : 'text-gray-900'} ${headerCollapsed ? 'text-xl' : 'text-3xl'}`}>
-                  {movement.name}
-                </h1>
-              </div>
-              {!headerCollapsed && (
-                <div className="flex items-center gap-2 mt-2">
+                {currentUser && (
                   <button
-                    onClick={() => onLocationClick && onLocationClick(movement.city, movement.state)}
-                    className={`px-3 py-1.5 ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} rounded-full text-sm flex items-center gap-1.5 cursor-pointer font-medium`}
+                    onClick={handleFollowToggle}
+                    disabled={isLoadingFollow}
+                    className={`px-3 py-1.5 rounded-full text-xs flex items-center gap-1.5 font-medium transition-colors ${
+                      isFollowing
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : isDark
+                        ? 'bg-gray-800 text-gray-200 hover:bg-gray-700'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    } ${isLoadingFollow ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    <MapPin className="w-4 h-4" />
-                    {movement.city}, {movement.state}
+                    {isLoadingFollow ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        <span>Loading...</span>
+                      </>
+                    ) : (
+                      <>
+                        {isFollowing ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                        {isFollowing ? 'Following' : 'Follow'}
+                      </>
+                    )}
                   </button>
-                  {currentUser && (
-                    <button
-                      onClick={handleFollowToggle}
-                      disabled={isLoadingFollow}
-                      className={`px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 font-medium transition-colors ${
-                        isFollowing
-                          ? 'bg-blue-600 text-white hover:bg-blue-700'
-                          : isDark
-                          ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      } ${isLoadingFollow ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      {isLoadingFollow ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                          <span>Loading...</span>
-                        </>
-                      ) : (
-                        <>
-                          {isFollowing ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                          {isFollowing ? 'Following' : 'Follow'}
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col items-end gap-3">
               {currentUser && (
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${isDark ? 'bg-gray-700/60' : 'bg-gray-100/80'}`}>
+                <div
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl ${
+                    isDark ? 'bg-gray-800/80' : 'bg-gray-100/90'
+                  }`}
+                >
                   <div className="flex -space-x-2">
-                    {(viewers.length > 0 ? viewers : [{
-                      userId: currentUser.id,
-                      firstName: currentUser.firstName,
-                      lastName: currentUser.lastName,
-                      avatar: currentUser.avatar
-                    }]).slice(0, 3).map((viewer, idx) => {
-                      const isCurrentUser = viewer && viewer.userId === currentUser?.id;
-                      return (
-                        <div
-                          key={viewer?.userId || idx}
-                          className={`w-8 h-8 rounded-full border-2 ${isDark ? 'border-gray-700' : 'border-white'} flex items-center justify-center text-xs font-medium ${
-                            isCurrentUser
-                              ? 'bg-blue-500 text-white ring-2 ring-blue-300'
-                              : isDark
-                              ? 'bg-gray-600 text-gray-300'
-                              : 'bg-gray-300 text-gray-700'
-                          }`}
-                          title={viewer ? `${viewer.firstName} ${viewer.lastName}` : ''}
-                        >
-                          {viewer?.avatar ? (
-                            <img src={viewer.avatar} alt="" className="w-full h-full rounded-full object-cover" />
-                          ) : (
-                            <span>
-                              {viewer?.firstName?.[0] || ''}{viewer?.lastName?.[0] || ''}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {(viewers.length > 0
+                      ? viewers
+                      : [
+                          {
+                            userId: currentUser.id,
+                            firstName: currentUser.firstName,
+                            lastName: currentUser.lastName,
+                            avatar: currentUser.avatar
+                          }
+                        ]
+                    )
+                      .slice(0, 3)
+                      .map((viewer, idx) => {
+                        const isCurrentUser = viewer && viewer.userId === currentUser?.id;
+                        return (
+                          <div
+                            key={viewer?.userId || idx}
+                            className={`w-7 h-7 rounded-full border-2 ${
+                              isDark ? 'border-gray-900' : 'border-white'
+                            } flex items-center justify-center text-[10px] font-medium ${
+                              isCurrentUser
+                                ? 'bg-blue-500 text-white ring-2 ring-blue-300'
+                                : isDark
+                                ? 'bg-gray-600 text-gray-300'
+                                : 'bg-gray-300 text-gray-700'
+                            }`}
+                            title={viewer ? `${viewer.firstName} ${viewer.lastName}` : ''}
+                          >
+                            {viewer?.avatar ? (
+                              <img
+                                src={viewer.avatar}
+                                alt=""
+                                className="w-full h-full rounded-full object-cover"
+                              />
+                            ) : (
+                              <span>
+                                {viewer?.firstName?.[0] || ''}
+                                {viewer?.lastName?.[0] || ''}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
                     {viewers.length > 3 && (
-                      <div className={`w-8 h-8 rounded-full border-2 ${isDark ? 'border-gray-700 bg-gray-600 text-gray-300' : 'border-white bg-gray-200 text-gray-700'} flex items-center justify-center text-xs font-medium`}>
+                      <div
+                        className={`w-7 h-7 rounded-full border-2 ${
+                          isDark
+                            ? 'border-gray-900 bg-gray-600 text-gray-300'
+                            : 'border-white bg-gray-200 text-gray-700'
+                        } flex items-center justify-center text-[10px] font-medium`}
+                      >
                         +{viewers.length - 3}
                       </div>
                     )}
                   </div>
-                  <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    {viewers.length === 0 || (viewers.length === 1 && viewers[0]?.userId === currentUser?.id)
-                      ? 'You are viewing'
-                      : `${viewers.length} ${viewers.length === 1 ? 'person is' : 'people are'} viewing`}
-                  </span>
-                </div>
-              )}
-              {!headerCollapsed && (
-                <div className="grid grid-cols-3 gap-2">
-                  <div className={`${isDark ? 'bg-gray-700/70 border-gray-600' : 'bg-gray-50 border-gray-200'} border rounded-xl px-4 py-2 text-center min-w-[94px]`}>
-                    <div className={`text-xl font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{plottersCount}</div>
-                    <div className={`text-[11px] uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Plotters</div>
-                  </div>
-                  <div className={`${isDark ? 'bg-gray-700/70 border-gray-600' : 'bg-gray-50 border-gray-200'} border rounded-xl px-4 py-2 text-center min-w-[94px]`}>
-                    <div className={`text-xl font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{locationsCount}</div>
-                    <div className={`text-[11px] uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Locations</div>
-                  </div>
-                  <div className={`${isDark ? 'bg-gray-700/70 border-gray-600' : 'bg-gray-50 border-gray-200'} border rounded-xl px-4 py-2 text-center min-w-[94px]`}>
-                    <div className={`text-xl font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>${(raisedAmount / 100).toLocaleString()}</div>
-                    <div className={`text-[11px] uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Raised</div>
-                  </div>
                 </div>
               )}
               <button
-                onClick={() => {
-                  setHeaderCollapsed(!headerCollapsed);
-                  if (headerCollapsed && contentRef.current) {
-                    contentRef.current.scrollTop = 0;
-                  }
-                }}
-                className={`p-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded-xl`}
+                type="button"
+                onClick={() => setPanelCollapsed(true)}
+                className={`p-1.5 rounded-full border ${
+                  isDark
+                    ? 'border-white/15 bg-gray-900/60 text-gray-200 hover:bg-gray-800'
+                    : 'border-white/70 bg-white/80 text-gray-700 hover:bg-white'
+                }`}
+                aria-label="Collapse movement panel"
               >
-                <ChevronUp className={`w-5 h-5 transition-transform ${isDark ? 'text-gray-300' : ''} ${headerCollapsed ? '' : 'rotate-180'}`} />
+                <ChevronUp className="w-4 h-4 rotate-90" />
               </button>
             </div>
           </div>
 
-          {!headerCollapsed && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-white/80'}`}>
-                <h2 className={`font-semibold text-base mb-2 ${isDark ? 'text-gray-200' : 'text-gray-900'}`}>Overview</h2>
-                <p className={`leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{movement.description}</p>
+          {/* Panel body */}
+          <div
+            ref={contentRef}
+            className="flex-1 overflow-y-auto px-4 pb-4 pt-3 space-y-4"
+          >
+            <div className="grid grid-cols-3 gap-2">
+              <div
+                className={`border rounded-xl px-3 py-2 text-center min-w-[80px] ${
+                  isDark ? 'bg-gray-900/60 border-gray-700' : 'bg-white/80 border-gray-200'
+                }`}
+              >
+                <div
+                  className={`text-lg font-semibold ${
+                    isDark ? 'text-gray-100' : 'text-gray-900'
+                  }`}
+                >
+                  {plottersCount}
+                </div>
+                <div
+                  className={`text-[10px] uppercase tracking-wide ${
+                    isDark ? 'text-gray-400' : 'text-gray-600'
+                  }`}
+                >
+                  Plotters
+                </div>
               </div>
-              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-white/80'}`}>
-                <h2 className={`font-semibold text-base mb-2 ${isDark ? 'text-gray-200' : 'text-gray-900'}`}>Details</h2>
-                <div className={`space-y-2 text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              <div
+                className={`border rounded-xl px-3 py-2 text-center min-w-[80px] ${
+                  isDark ? 'bg-gray-900/60 border-gray-700' : 'bg-white/80 border-gray-200'
+                }`}
+              >
+                <div
+                  className={`text-lg font-semibold ${
+                    isDark ? 'text-gray-100' : 'text-gray-900'
+                  }`}
+                >
+                  {locationsCount}
+                </div>
+                <div
+                  className={`text-[10px] uppercase tracking-wide ${
+                    isDark ? 'text-gray-400' : 'text-gray-600'
+                  }`}
+                >
+                  Locations
+                </div>
+              </div>
+              <div
+                className={`border rounded-xl px-3 py-2 text-center min-w-[80px] ${
+                  isDark ? 'bg-gray-900/60 border-gray-700' : 'bg-white/80 border-gray-200'
+                }`}
+              >
+                <div
+                  className={`text-lg font-semibold ${
+                    isDark ? 'text-gray-100' : 'text-gray-900'
+                  }`}
+                >
+                  ${(raisedAmount / 100).toLocaleString()}
+                </div>
+                <div
+                  className={`text-[10px] uppercase tracking-wide ${
+                    isDark ? 'text-gray-400' : 'text-gray-600'
+                  }`}
+                >
+                  Raised
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3">
+              <div
+                className={`rounded-xl border p-3 ${
+                  isDark ? 'border-gray-700 bg-gray-900/60' : 'border-gray-200 bg-white/90'
+                }`}
+              >
+                <h2
+                  className={`font-semibold text-sm mb-1 ${
+                    isDark ? 'text-gray-200' : 'text-gray-900'
+                  }`}
+                >
+                  Overview
+                </h2>
+                <p
+                  className={`text-sm leading-relaxed ${
+                    isDark ? 'text-gray-300' : 'text-gray-700'
+                  }`}
+                >
+                  {movement.description}
+                </p>
+              </div>
+              <div
+                className={`rounded-xl border p-3 ${
+                  isDark ? 'border-gray-700 bg-gray-900/60' : 'border-gray-200 bg-white/90'
+                }`}
+              >
+                <h2
+                  className={`font-semibold text-sm mb-1 ${
+                    isDark ? 'text-gray-200' : 'text-gray-900'
+                  }`}
+                >
+                  Details
+                </h2>
+                <div
+                  className={`space-y-1.5 text-xs ${
+                    isDark ? 'text-gray-300' : 'text-gray-700'
+                  }`}
+                >
                   <div>
-                    <span className="font-medium">Launched:</span> {formatDate(movement.createdAt)}
+                    <span className="font-medium">Launched:</span>{' '}
+                    {formatDate(movement.createdAt)}
                   </div>
                   <div>
-                    <span className="font-medium">Manager:</span> {movement.owner?.firstName} {movement.owner?.lastName}
+                    <span className="font-medium">Manager:</span>{' '}
+                    {movement.owner?.firstName} {movement.owner?.lastName}
                   </div>
                 </div>
                 {movement.tags && movement.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-4">
-                    {movement.tags.map(tag => (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {movement.tags.map((tag) => (
                       <button
                         key={tag}
                         onClick={() => onTagClick && onTagClick(tag)}
-                        className={`px-3 py-1 ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} rounded-full text-xs font-medium cursor-pointer transition-colors`}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium cursor-pointer transition-colors ${
+                          isDark
+                            ? 'bg-gray-800 text-gray-200 hover:bg-gray-700'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
                       >
                         {tag}
                       </button>
@@ -317,119 +460,139 @@ const MovementView = ({
                 )}
               </div>
             </div>
-          )}
 
-          {!headerCollapsed && currentUser && (
-            <div className="mt-5 space-y-4">
-              <div className="flex flex-wrap justify-center gap-3">
-                <button
-                  onClick={handleSuggestIdeas}
-                  disabled={suggestIdeasLoading}
-                  className={`${isDark ? 'bg-emerald-700 border-emerald-600 hover:bg-emerald-600 text-white' : 'bg-emerald-500 border-emerald-600 hover:bg-emerald-600 text-white'} border px-6 py-2.5 rounded-xl flex items-center gap-2 font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed`}
-                >
-                  {suggestIdeasLoading ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Analyzing area…
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-5 h-5" />
-                      Suggest ideas with AI
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={onCreateIdea}
-                  className={`${isDark ? 'bg-gray-700 border-gray-600 hover:bg-gray-600 text-gray-200' : 'bg-white border-gray-300 hover:bg-gray-50'} border px-6 py-2.5 rounded-xl flex items-center gap-2 font-semibold`}
-                >
-                  <Lightbulb className="w-5 h-5" />
-                  Add an idea
-                </button>
-              </div>
-              {suggestIdeasError && (
-                <p className={`text-center text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>
-                  {suggestIdeasError}
-                </p>
-              )}
-              {suggestedIdeas.length > 0 && (
-                <div className={`rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} p-4`}>
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className={`font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
-                      AI-suggested ideas
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => { setSuggestedIdeas([]); setSuggestedAreaSummary(''); }}
-                      className={`p-1 rounded ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}
-                      aria-label="Close"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                  {suggestedAreaSummary && (
-                    <div className={`mb-4 rounded-lg px-3 py-2 text-sm ${isDark ? 'bg-gray-700/50 text-gray-300' : 'bg-white border border-gray-200 text-gray-700'}`}>
-                      <p className="font-medium mb-1">Area summary</p>
-                      <p className="leading-relaxed">{suggestedAreaSummary}</p>
-                    </div>
-                  )}
-                  <ul className="space-y-3 max-h-64 overflow-y-auto">
-                    {suggestedIdeas.map((suggestion, index) => (
-                      <li
-                        key={index}
-                        className={`rounded-lg border p-3 ${isDark ? 'bg-gray-700/50 border-gray-600' : 'bg-white border-gray-200'}`}
-                      >
-                        <p className={`font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
-                          {suggestion.title}
-                        </p>
-                        <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'} line-clamp-2`}>
-                          {suggestion.description}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => handleAddSuggestedIdea(suggestion, index)}
-                          disabled={addingIdeaId !== null}
-                          className="mt-2 text-sm font-medium text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
-                        >
-                          {addingIdeaId === index ? 'Adding…' : 'Add as idea'}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+            {currentUser && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap justify-center gap-2">
+                  <button
+                    onClick={handleSuggestIdeas}
+                    disabled={suggestIdeasLoading}
+                    className={`border px-5 py-2.5 rounded-xl flex items-center gap-2 text-sm font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isDark
+                        ? 'bg-emerald-700 border-emerald-600 hover:bg-emerald-600 text-white'
+                        : 'bg-emerald-500 border-emerald-600 hover:bg-emerald-600 text-white'
+                    }`}
+                  >
+                    {suggestIdeasLoading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Analyzing area…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        Suggest ideas with AI
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={onCreateIdea}
+                    className={`border px-5 py-2.5 rounded-xl flex items-center gap-2 text-sm font-semibold ${
+                      isDark
+                        ? 'bg-gray-900/70 border-gray-700 text-gray-100 hover:bg-gray-800'
+                        : 'bg-white border-gray-300 text-gray-800 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Lightbulb className="w-4 h-4" />
+                    Add an idea
+                  </button>
                 </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div ref={contentRef} className="flex-1 relative pointer-events-none overflow-auto bg-transparent">
-        {addIdeaMode && onMapAreaClick && (
-          <div
-            className="absolute inset-0 cursor-crosshair z-[1]"
-            style={{ pointerEvents: 'auto' }}
-            onClick={onMapAreaClick}
-            aria-label="Click map to add idea"
-          />
-        )}
-        {addIdeaMode && currentUser && (
-          <div className={`pointer-events-auto absolute top-4 left-1/2 transform -translate-x-1/2 ${isDark ? 'bg-blue-900 border-blue-700' : 'bg-blue-50 border-blue-200'} border rounded-lg p-3 z-10`}>
-            <p className={`text-sm font-medium mb-1 ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>
-              💡 Add Idea Mode Active
-            </p>
-            <p className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
-              Click anywhere on the map to place your idea at that location
-            </p>
+                {suggestIdeasError && (
+                  <p
+                    className={`text-center text-xs ${
+                      isDark ? 'text-red-400' : 'text-red-600'
+                    }`}
+                  >
+                    {suggestIdeasError}
+                  </p>
+                )}
+                {suggestedIdeas.length > 0 && (
+                  <div
+                    className={`rounded-xl border p-3 ${
+                      isDark ? 'bg-gray-900/70 border-gray-700' : 'bg-gray-50 border-gray-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h3
+                        className={`font-semibold text-sm ${
+                          isDark ? 'text-gray-100' : 'text-gray-900'
+                        }`}
+                      >
+                        AI-suggested ideas
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSuggestedIdeas([]);
+                          setSuggestedAreaSummary('');
+                        }}
+                        className={`p-1 rounded ${
+                          isDark
+                            ? 'hover:bg-gray-800 text-gray-400'
+                            : 'hover:bg-gray-200 text-gray-500'
+                        }`}
+                        aria-label="Close"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {suggestedAreaSummary && (
+                      <div
+                        className={`mb-3 rounded-lg px-3 py-2 text-xs ${
+                          isDark
+                            ? 'bg-gray-800/80 text-gray-300'
+                            : 'bg-white border border-gray-200 text-gray-700'
+                        }`}
+                      >
+                        <p className="font-medium mb-1">Area summary</p>
+                        <p className="leading-relaxed">{suggestedAreaSummary}</p>
+                      </div>
+                    )}
+                    <ul className="space-y-2 max-h-60 overflow-y-auto">
+                      {suggestedIdeas.map((suggestion, index) => (
+                        <li
+                          key={index}
+                          className={`rounded-lg border p-2.5 ${
+                            isDark
+                              ? 'bg-gray-900/70 border-gray-700'
+                              : 'bg-white border-gray-200'
+                          }`}
+                        >
+                          <p
+                            className={`font-medium text-sm ${
+                              isDark ? 'text-gray-100' : 'text-gray-900'
+                            }`}
+                          >
+                            {suggestion.title}
+                          </p>
+                          <p
+                            className={`text-xs mt-0.5 ${
+                              isDark ? 'text-gray-400' : 'text-gray-600'
+                            } line-clamp-2`}
+                          >
+                            {suggestion.description}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => handleAddSuggestedIdea(suggestion, index)}
+                            disabled={addingIdeaId !== null}
+                            className="mt-1.5 text-xs font-medium text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                          >
+                            {addingIdeaId === index ? 'Adding…' : 'Add as idea'}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      ) : null}
 
-      {currentUser && movement?.ownerId === currentUser.id && apiCall && (
-        <CoPilot
-          movementId={movement.id}
-          movementName={movement.name}
-          apiCall={apiCall}
-        />
+      {currentUser && movement?.ownerId === currentUser.id && apiCall && !isIdeaOpen && (
+        <CoPilot movementId={movement.id} movementName={movement.name} apiCall={apiCall} />
       )}
     </div>
   );

@@ -306,335 +306,307 @@ const IdeaModal = ({ idea, onClose, currentUser, onSupport, socket, isConnected,
 
   return (
     <div className="fixed inset-0 z-50 pointer-events-none">
+      {/* Scrim over map */}
       <div
-        className="absolute inset-0 pointer-events-auto"
-        style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+        className="absolute inset-0 bg-black/40 pointer-events-auto"
         onClick={onClose}
       />
 
-      <div className="absolute top-[70px] left-0 right-0 bottom-0 bg-white rounded-t-2xl shadow-2xl flex flex-col pointer-events-auto">
-        <div className="pt-4 pb-4 border-b border-gray-200 flex-shrink-0">
-          <div className="max-w-7xl mx-auto px-6">
-            <div className="flex justify-between items-start">
+      {/* Idea page aligned under header, fills map height */}
+      <div className="absolute top-[70px] left-0 right-0 bottom-0 flex justify-center pointer-events-none">
+        <div className="relative w-full max-w-5xl bg-white rounded-t-2xl shadow-2xl flex flex-col pointer-events-auto mx-4 md:mx-12 lg:mx-24">
+          <div className="pt-4 pb-4 border-b border-gray-200 flex-shrink-0">
+            <div className="max-w-7xl mx-auto px-6 flex justify-between items-start">
               <h2 className="text-2xl font-semibold pr-8">{idea.title || 'Untitled Idea'}</h2>
               <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
                 <X className="w-6 h-6" />
               </button>
             </div>
           </div>
-        </div>
 
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto px-6 py-6">
-            <p className="text-gray-700 mb-6">{idea.description || 'No description'}</p>
-
-            {idea.latitude && idea.longitude && (
-              <div className="mb-6">
-                <h3 className="font-medium text-sm text-gray-500 mb-2">Location</h3>
-                <div
-                  ref={ideaMapContainer}
-                  className="w-full h-64 rounded-lg overflow-hidden border border-gray-200"
-                  style={{ minHeight: '256px' }}
-                />
-                {idea.address && (
-                  <p className="text-sm text-gray-600 mt-2 flex items-center gap-2">
-                    <MapPin className="w-4 h-4" />
-                    {idea.address}
-                  </p>
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-7xl mx-auto px-6 py-6 space-y-8">
+              {/* Top hero: map + gallery */}
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.8fr)_minmax(0,1.6fr)] gap-6">
+                {/* Map */}
+                {idea.latitude && idea.longitude && (
+                  <div className="rounded-2xl overflow-hidden border border-gray-200 bg-gray-50">
+                    <div
+                      ref={ideaMapContainer}
+                      className="w-full h-64 md:h-72"
+                    />
+                    {idea.address && (
+                      <div className="px-4 py-3 border-t border-gray-200 flex items-center gap-2 text-sm text-gray-600">
+                        <MapPin className="w-4 h-4" />
+                        <span>{idea.address}</span>
+                      </div>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
 
-            {/* Cover Image */}
-            {idea.coverImage && (
-              <div className="mb-6">
-                <img
-                  src={idea.coverImage}
-                  alt="Cover"
-                  className="w-full h-64 object-cover rounded-lg border border-gray-200"
-                />
-              </div>
-            )}
-
-            {/* Images Gallery */}
-            {(images.length > 0 || isCreator) && (
-              <div className="mb-6">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-lg">Images</h3>
-                  {isCreator && (
-                    <>
-                      <input
-                        ref={imageInputRef}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={handleImageUpload}
-                        className="hidden"
-                        disabled={isUploadingImages}
+                {/* Images / gallery */}
+                <div className="space-y-3">
+                  {idea.coverImage && (
+                    <div className="rounded-2xl overflow-hidden border border-gray-200">
+                      <img
+                        src={idea.coverImage}
+                        alt="Cover"
+                        className="w-full h-64 md:h-72 object-cover"
                       />
-                      <button
-                        type="button"
-                        onClick={() => imageInputRef.current?.click()}
-                        disabled={isUploadingImages}
-                        className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Plus className="w-4 h-4" />
-                        {isUploadingImages ? 'Uploading...' : 'Add Images'}
-                      </button>
-                    </>
+                    </div>
                   )}
-                </div>
-                {images.length > 0 ? (
-                  <div className="grid grid-cols-3 gap-4">
-                    {images.map((image, index) => {
-                      // Calculate the actual index including cover image
-                      const actualIndex = idea.coverImage ? index + 1 : index;
-                      return (
-                        <div key={index} className="relative group">
-                          <img
-                            src={image}
-                            alt={`Idea image ${index + 1}`}
-                            className="w-full h-48 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
-                            onClick={(e) => {
-                              // Don't open lightbox if clicking the remove button
-                              if (e.target.closest('button')) return;
-                              const allImages = idea.coverImage ? [idea.coverImage, ...images] : images;
-                              setLightboxImageIndex(actualIndex);
-                            }}
-                          />
-                          {isCreator && (
+
+                  {(images.length > 0 || isCreator) && (
+                    <div className="rounded-2xl border border-gray-200 p-3 bg-white">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-semibold text-sm text-gray-900">Images</h3>
+                        {isCreator && (
+                          <>
+                            <input
+                              ref={imageInputRef}
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              onChange={handleImageUpload}
+                              className="hidden"
+                              disabled={isUploadingImages}
+                            />
                             <button
                               type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeImage(index);
-                              }}
-                              className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                              onClick={() => imageInputRef.current?.click()}
+                              disabled={isUploadingImages}
+                              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              <X className="w-4 h-4" />
+                              <Plus className="w-4 h-4" />
+                              {isUploadingImages ? 'Uploading…' : 'Add images'}
                             </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">No images yet</p>
-                )}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-6 mb-6">
-              <div>
-                <h3 className="font-medium text-sm text-gray-500 mb-1">Creator</h3>
-                <p>{idea.creator?.firstName || 'Unknown'} {idea.creator?.lastName || ''}</p>
-              </div>
-              <div>
-                <h3 className="font-medium text-sm text-gray-500 mb-1">Supporters</h3>
-                <div className="flex items-center space-x-1">
-                  <Heart className="w-4 h-4 text-red-500" />
-                  <span>{idea._count?.supporters || 0}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-green-50 p-5 rounded-lg mb-6">
-              <h3 className="font-semibold mb-3">Fundraising Progress</h3>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium">${((idea.fundingRaised || 0) / 100).toLocaleString()} raised</span>
-                <span className="text-gray-600">${((idea.fundingGoal || 0) / 100).toLocaleString()} goal</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
-                <div
-                  className="bg-green-600 h-3 rounded-full transition-all"
-                  style={{ width: `${idea.fundingGoal > 0 ? Math.min(((idea.fundingRaised || 0) / idea.fundingGoal) * 100, 100) : 0}%` }}
-                />
-              </div>
-              <p className="text-sm text-gray-600 mb-3">{idea._count?.donations || 0} donations • 5% platform fee</p>
-              <button className="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 font-medium">
-                Donate Now
-              </button>
-            </div>
-
-            <div className="mb-6">
-              <h3 className="font-semibold mb-3">Tasks</h3>
-              <div className="space-y-2">
-                {idea.tasks && idea.tasks.length > 0 ? idea.tasks.map(task => (
-                  <div key={task.id} className="flex items-start space-x-3 p-2 hover:bg-gray-50 rounded">
-                    <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center ${task.completed ? 'bg-green-600 border-green-600' : 'border-gray-300'}`}>
-                      {task.completed && <Check className="w-3 h-3 text-white" />}
-                    </div>
-                    <span className={task.completed ? 'line-through text-gray-400' : ''}>{task.title}</span>
-                  </div>
-                )) : (
-                  <p className="text-sm text-gray-500">No tasks yet</p>
-                )}
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <h3 className="font-semibold mb-3">Community Needs</h3>
-              <div className="space-y-2">
-                {idea.needs && idea.needs.length > 0 ? idea.needs.map(need => (
-                  <div key={need.id} className="p-3 bg-blue-50 rounded-lg">
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="font-medium">{need.title}</span>
-                      <span className="text-sm text-gray-600">{need.fulfilled}/{need.quantity}</span>
-                    </div>
-                    <div className="w-full bg-blue-200 rounded-full h-2">
-                      <div
-                        className="bg-blue-600 h-2 rounded-full"
-                        style={{ width: `${need.quantity > 0 ? (need.fulfilled / need.quantity) * 100 : 0}%` }}
-                      />
-                    </div>
-                  </div>
-                )) : (
-                  <p className="text-sm text-gray-500">No needs listed yet</p>
-                )}
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <Activity className="w-5 h-5" />
-                Activity Feed
-              </h3>
-              {isLoadingActivities ? (
-                <div className="text-center py-4 text-gray-500">Loading activities...</div>
-              ) : activities.length > 0 ? (
-                <div className="space-y-3">
-                  {activities.map((activity, idx) => (
-                    <div key={activity.id || idx} className="border-b border-gray-200 pb-3 last:border-0">
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                          {activity.user?.avatar ? (
-                            <img src={activity.user.avatar} alt="" className="w-full h-full rounded-full object-cover" />
-                          ) : (
-                            <span className="text-xs font-medium text-gray-600">
-                              {activity.user?.firstName?.[0] || ''}{activity.user?.lastName?.[0] || ''}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-700">
-                            <span className="font-medium">{activity.user?.firstName || 'Someone'} {activity.user?.lastName || ''}</span>
-                            {' '}
-                            {activity.type === 'task_added' && `added task "${activity.task?.title || ''}"`}
-                            {activity.type === 'task_claimed' && `claimed task "${activity.task?.title || ''}"`}
-                            {activity.type === 'task_updated' && `updated task "${activity.task?.title || ''}"`}
-                            {activity.type === 'support' && 'supported this idea'}
-                            {activity.type === 'donation' && `donated $${((activity.donation?.amount || 0) / 100).toLocaleString()}`}
-                            {activity.type === 'comment' && `commented: "${(activity.comment?.content || '').substring(0, 50)}${activity.comment?.content?.length > 50 ? '...' : ''}"`}
-                          </p>
-                          <span className="text-xs text-gray-400 mt-1 block">{formatActivityTime(activity.createdAt)}</span>
-                        </div>
+                          </>
+                        )}
                       </div>
+                      {images.length > 0 ? (
+                        <div className="grid grid-cols-3 gap-3">
+                          {images.slice(0, 6).map((image, index) => {
+                            const actualIndex = idea.coverImage ? index + 1 : index;
+                            return (
+                              <button
+                                key={index}
+                                type="button"
+                                onClick={() => setLightboxImageIndex(actualIndex)}
+                                className="relative group rounded-lg overflow-hidden border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <img
+                                  src={image}
+                                  alt={`Idea image ${index + 1}`}
+                                  className="w-full h-24 object-cover group-hover:scale-[1.02] transition-transform"
+                                />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">No images yet</p>
+                      )}
                     </div>
-                  ))}
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-gray-500">No activity yet</p>
-              )}
-            </div>
+              </div>
 
-            <div className="mb-6">
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <MessageSquare className="w-5 h-5" />
-                Comments {comments.length > 0 && `(${comments.length})`}
-              </h3>
-              
-              {/* Comment form */}
-              {currentUser ? (
-                <form onSubmit={handleSubmitComment} className="mb-4">
-                  <div className="flex gap-2">
-                    <textarea
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      placeholder="Add a comment..."
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                      rows={3}
-                      disabled={isSubmittingComment}
-                    />
-                    <button
-                      type="submit"
-                      disabled={!newComment.trim() || isSubmittingComment}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                      <Send className="w-4 h-4" />
-                      {isSubmittingComment ? 'Posting...' : 'Post'}
+              {/* Main content + sidebar */}
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.1fr)] gap-8 items-start">
+                {/* Left: overview + comments (Discussion tab) */}
+                <div className="space-y-6">
+                  {/* Meta */}
+                  <div className="space-y-2">
+                    <p className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
+                      {idea.location && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <MapPin className="w-4 h-4" />
+                          {idea.location}
+                        </span>
+                      )}
+                      {idea.createdAt && (
+                        <span>Created {new Date(idea.createdAt).toLocaleDateString()}</span>
+                      )}
+                      {idea.creator && (
+                        <span>by {idea.creator.firstName} {idea.creator.lastName}</span>
+                      )}
+                    </p>
+                    <p className="text-gray-700">
+                      {idea.description || 'No description yet.'}
+                    </p>
+                  </div>
+
+                  {/* Simple tab strip (only Discussion active for now) */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <button className="px-3 py-1.5 rounded-full bg-gray-900 text-white text-xs font-medium">
+                      Discussion
+                    </button>
+                    <button className="px-3 py-1.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium cursor-default">
+                      Tasks
+                    </button>
+                    <button className="px-3 py-1.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium cursor-default">
+                      Resources
                     </button>
                   </div>
-                </form>
-              ) : (
-                <p className="text-sm text-gray-500 mb-4">Sign in to add a comment</p>
-              )}
 
-              {/* Comments list */}
-              {comments && comments.length > 0 ? (
-                <div className="space-y-4">
-                  {comments.map(comment => {
-                    if (!comment || !comment.id) return null;
-                    return (
-                      <div key={comment.id} className="border-b border-gray-200 pb-4 last:border-0">
-                        <div className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                            {comment.user?.avatar ? (
-                              <img src={comment.user.avatar} alt="" className="w-full h-full rounded-full object-cover" />
-                            ) : (
-                              <span className="text-xs font-medium text-gray-600">
-                                {comment.user?.firstName?.[0] || ''}{comment.user?.lastName?.[0] || ''}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium text-sm">
-                                {comment.user?.firstName || 'Unknown'} {comment.user?.lastName || ''}
-                              </span>
-                              <span className="text-xs text-gray-400">
-                                {formatCommentTime(comment.createdAt)}
-                              </span>
-                            </div>
-                            <p className="text-sm text-gray-700 whitespace-pre-wrap">{comment.content || ''}</p>
-                          </div>
+                  {/* Comments (discussion) */}
+                  <div className="space-y-4">
+                    {currentUser ? (
+                      <form onSubmit={handleSubmitComment} className="mb-2">
+                        <div className="flex gap-2">
+                          <textarea
+                            value={newComment}
+                            onChange={(e) => setNewComment(e.target.value)}
+                            placeholder="Add a comment..."
+                            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                            rows={3}
+                            disabled={isSubmittingComment}
+                          />
+                          <button
+                            type="submit"
+                            disabled={!newComment.trim() || isSubmittingComment}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm"
+                          >
+                            <Send className="w-4 h-4" />
+                            {isSubmittingComment ? 'Posting…' : 'Post'}
+                          </button>
                         </div>
-                      </div>
-                    );
-                  })}
-                  <div ref={commentsEndRef} />
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500">No comments yet. Be the first to comment!</p>
-              )}
-            </div>
+                      </form>
+                    ) : (
+                      <p className="text-sm text-gray-500 mb-2">Sign in to add a comment.</p>
+                    )}
 
-            <div className="flex space-x-3">
-              <button
-                onClick={() => onSupport && onSupport(idea.id)}
-                className={`flex-1 py-3 rounded-lg flex items-center justify-center space-x-2 ${
-                  isSupporting
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}
-              >
-                <Heart className={`w-5 h-5 ${isSupporting ? 'fill-current' : ''}`} />
-                <span>{isSupporting ? 'Unsupport' : 'Support'}</span>
-              </button>
-              <button className="flex-1 border-2 border-gray-300 py-3 rounded-lg hover:bg-gray-50 flex items-center justify-center space-x-2">
-                <Share2 className="w-5 h-5" />
-                <span>Share</span>
-              </button>
+                    {comments && comments.length > 0 ? (
+                      <div className="space-y-4">
+                        {comments.map((comment) => {
+                          if (!comment || !comment.id) return null;
+                          return (
+                            <div key={comment.id} className="border-b border-gray-200 pb-4 last:border-0">
+                              <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                                  {comment.user?.avatar ? (
+                                    <img
+                                      src={comment.user.avatar}
+                                      alt=""
+                                      className="w-full h-full rounded-full object-cover"
+                                    />
+                                  ) : (
+                                    <span className="text-xs font-medium text-gray-600">
+                                      {comment.user?.firstName?.[0] || ''}
+                                      {comment.user?.lastName?.[0] || ''}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="font-medium text-sm">
+                                      {comment.user?.firstName || 'Unknown'}{' '}
+                                      {comment.user?.lastName || ''}
+                                    </span>
+                                    <span className="text-xs text-gray-400">
+                                      {formatCommentTime(comment.createdAt)}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                    {comment.content || ''}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div ref={commentsEndRef} />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        No comments yet. Be the first to comment!
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right: sidebar summary / actions */}
+                <div className="space-y-4">
+                  {/* Funding summary */}
+                  <div className="rounded-2xl border border-gray-200 p-4 bg-gray-50">
+                    <div className="flex items-baseline justify-between mb-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">
+                          Raised
+                        </p>
+                        <p className="text-xl font-semibold text-gray-900">
+                          ${((idea.fundingRaised || 0) / 100).toLocaleString()}
+                        </p>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Goal ${((idea.fundingGoal || 0) / 100).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
+                      <div
+                        className="bg-green-600 h-2 rounded-full transition-all"
+                        style={{
+                          width: `${
+                            idea.fundingGoal > 0
+                              ? Math.min(
+                                  ((idea.fundingRaised || 0) / idea.fundingGoal) * 100,
+                                  100
+                                )
+                              : 0
+                          }%`
+                        }}
+                      />
+                    </div>
+                    <button className="w-full bg-green-600 text-white py-2.5 rounded-lg hover:bg-green-700 text-sm font-medium">
+                      Contribute
+                    </button>
+                  </div>
+
+                  {/* Support / share */}
+                  <div className="rounded-2xl border border-gray-200 p-4 bg-white space-y-3">
+                    <button
+                      onClick={() => onSupport && onSupport(idea.id)}
+                      className={`w-full py-2.5 rounded-lg flex items-center justify-center gap-2 text-sm font-medium ${
+                        isSupporting
+                          ? 'bg-red-600 text-white hover:bg-red-700'
+                          : 'bg-blue-600 text-white hover:bg-blue-700'
+                      }`}
+                    >
+                      <Heart className={`w-4 h-4 ${isSupporting ? 'fill-current' : ''}`} />
+                      <span>{isSupporting ? 'Unsupport' : 'Support this idea'}</span>
+                    </button>
+                    <button className="w-full border border-gray-300 py-2.5 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2 text-sm">
+                      <Share2 className="w-4 h-4" />
+                      <span>Share</span>
+                    </button>
+                    {isCreator && (
+                      <p className="text-[11px] text-gray-500 text-center">
+                        You created this idea{isSupporting ? ' and are supporting it' : ''}.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Tags / collections (simple placeholders) */}
+                  {idea.tags && idea.tags.length > 0 && (
+                    <div className="rounded-2xl border border-gray-200 p-4 bg-white space-y-2">
+                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                        Tags
+                      </h3>
+                      <div className="flex flex-wrap gap-1.5">
+                        {idea.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[11px] font-medium"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-            {isCreator && (
-              <p className="text-xs text-gray-500 text-center mt-2">
-                You created this idea{isSupporting ? ' and are supporting it' : ''}
-              </p>
-            )}
-            {isSupporting && (
-              <p className="text-xs text-gray-500 text-center mt-2">
-                You are supporting this idea
-              </p>
-            )}
           </div>
         </div>
       </div>
