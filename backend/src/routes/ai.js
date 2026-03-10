@@ -5,6 +5,8 @@ const { getSimilarMovements, getSimilarIdeas } = require('../lib/civicKnowledge'
 const prisma = require('../lib/prisma');
 
 const router = express.Router();
+const IS_DEV = process.env.NODE_ENV !== 'production';
+const lastCopilotIntents = [];
 
 const TITLE_CONTEXT = `When a title is provided, treat it as the intended topic. Your feedback and edits should align with the title. If the description is unrelated, nonsensical, or contradicts the title, say so and suggest how to bring the description in line with the title (or suggest revising the title if that fits better).`;
 
@@ -32,7 +34,7 @@ function buildUserMessage(type, text, title, customPrompt, location) {
 
 router.post('/improve', authenticateToken, async (req, res) => {
   try {
-    const { type, entityType, text, title, customPrompt, location } = req.body;
+    const { type, entityType, text, title, customPrompt, location, movementId, ideaId } = req.body;
     const allowed = ['rewrite', 'tone', 'review', 'suggestions', 'tasks', 'suggest_tags', 'custom'];
     if (!type || !allowed.includes(type)) {
       return res.status(400).json({ error: { message: 'Invalid type. Use: rewrite, tone, review, suggestions, tasks, suggest_tags, custom.' } });
@@ -48,7 +50,50 @@ router.post('/improve', authenticateToken, async (req, res) => {
     }
 
     const systemPrompt = IMPROVE_SYSTEM[type];
-    const userMessage = buildUserMessage(type, text, title, customPrompt, location);
+
+    let civicContext = '';
+    try {
+      if (movementId) {
+        const movement = await prisma.movement.findUnique({
+          where: { id: movementId },
+          select: { id: true, name: true, description: true, city: true, state: true, tags: true, isActive: true }
+        });
+        if (movement && movement.isActive) {
+          const similarMovements = await getSimilarMovements(prisma, movement.id, 4);
+          if (similarMovements.length > 0) {
+            civicContext += `\nSimilar movements on Plot (for context):\n${similarMovements
+              .map(
+                (m) =>
+                  `- ${m.name} (${m.city}, ${m.state}): ${(m.description || '').slice(0, 140)}${
+                    m.description && m.description.length > 140 ? '...' : ''
+                  }`
+              )
+              .join('\n')}`;
+          }
+        }
+      }
+      if (ideaId && entityType === 'idea') {
+        const similarIdeas = await getSimilarIdeas(prisma, ideaId, 4);
+        if (similarIdeas.length > 0) {
+          civicContext += `\nSimilar ideas on Plot:\n${similarIdeas
+            .map(
+              (i) =>
+                `- ${i.title} (${i.movementName || ''}): ${(i.description || '').slice(0, 140)}${
+                  i.description && i.description.length > 140 ? '...' : ''
+                }`
+            )
+            .join('\n')}`;
+        }
+      }
+      if (civicContext) {
+        civicContext = `\nCivic knowledge from Plot (you can reference, but do not copy verbatim):\n${civicContext}`;
+      }
+    } catch (_) {
+      // Non-fatal; improve works without civic context.
+    }
+
+    const baseUserMessage = buildUserMessage(type, text, title, customPrompt, location);
+    const userMessage = civicContext ? `${baseUserMessage}\n\n${civicContext}` : baseUserMessage;
 
     const wantsJson = ['review', 'suggestions', 'tasks', 'suggest_tags'].includes(type);
     const raw = await callOpenAI(systemPrompt, userMessage, { json: wantsJson });
@@ -340,9 +385,70 @@ router.post('/intelligence', authenticateToken, async (req, res) => {
       ? `The user has selected an area on the map. Center of selection: latitude ${centroid.lat.toFixed(4)}, longitude ${centroid.lng.toFixed(4)}. ${effectiveSelection.type === 'Polygon' ? 'The selection is a drawn polygon (specific geographic area).' : 'The selection is a single point.'}`
       : 'The user has not selected an area; they may be asking a general question or to generate movements from description only.';
 
+    let civicContext = '';
+    if (centroid) {
+      try {
+        const latWindow = 0.25;
+        const lngWindow = 0.25;
+        const anchorMovement = await prisma.movement.findFirst({
+          where: {
+            latitude: { gte: centroid.lat - latWindow, lte: centroid.lat + latWindow },
+            longitude: { gte: centroid.lng - lngWindow, lte: centroid.lng + lngWindow },
+            isActive: true
+          },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            city: true,
+            state: true
+          }
+        });
+        const anchorIdea = await prisma.idea.findFirst({
+          where: {
+            latitude: { gte: centroid.lat - latWindow, lte: centroid.lat + latWindow },
+            longitude: { gte: centroid.lng - lngWindow, lte: centroid.lng + lngWindow }
+          },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            movement: { select: { name: true, city: true, state: true } }
+          }
+        });
+
+        if (anchorMovement || anchorIdea) {
+          const [similarMovements, similarIdeas] = await Promise.all([
+            anchorMovement ? getSimilarMovements(prisma, anchorMovement.id, 4) : Promise.resolve([]),
+            anchorIdea ? getSimilarIdeas(prisma, anchorIdea.id, 4) : Promise.resolve([])
+          ]);
+
+          if (anchorMovement) {
+            civicContext += `\nMovements in or near this area (anchor):\n- ${anchorMovement.name} (${anchorMovement.city}, ${anchorMovement.state}): ${(anchorMovement.description || '').slice(0, 160)}${(anchorMovement.description && anchorMovement.description.length > 160) ? '...' : ''}`;
+          }
+          if (anchorIdea) {
+            civicContext += `\nIdeas in or near this area (anchor):\n- ${anchorIdea.title} (${anchorIdea.movement?.name || ''}): ${(anchorIdea.description || '').slice(0, 160)}${(anchorIdea.description && anchorIdea.description.length > 160) ? '...' : ''}`;
+          }
+          if (similarMovements.length > 0) {
+            civicContext += `\nSimilar movements elsewhere on Plot (for comparison):\n${similarMovements.map(m => `- ${m.name} (${m.city}, ${m.state})`).join('\n')}`;
+          }
+          if (similarIdeas.length > 0) {
+            civicContext += `\nSimilar ideas elsewhere on Plot:\n${similarIdeas.map(i => `- ${i.title} (${i.movementName || ''})`).join('\n')}`;
+          }
+          if (civicContext) {
+            civicContext = `\nCivic knowledge from Plot (nearby and similar content):\n${civicContext}`;
+          }
+        }
+      } catch (_) {
+        // Non-fatal; Intelligence works without civic context
+      }
+    }
+
     const systemPrompt = `You are Plot's Intelligence: an AI that helps users analyze places on a map and generate civic movements.
 
 ${selectionContext}
+
+${civicContext}
 
 The user's prompt: "${prompt.trim()}"
 
@@ -423,6 +529,17 @@ router.get('/similar', authenticateToken, async (req, res) => {
 });
 
 /**
+ * Dev-only: inspect recent Co-Pilot intents.
+ * GET /api/ai/copilot/debug-intents
+ */
+router.get('/copilot/debug-intents', authenticateToken, async (req, res) => {
+  if (!IS_DEV) {
+    return res.status(404).json({ error: { message: 'Not found' } });
+  }
+  return res.json({ items: lastCopilotIntents });
+});
+
+/**
  * Co-Pilot: chat assistant for movement/idea creators. Context-aware (movement + ideas).
  * POST /api/ai/copilot  body: { movementId, message, history?, ideaId? }
  */
@@ -498,7 +615,14 @@ ${ideasBlob}
 ${ideaContext}
 ${civicContext}
 
-Help with drafting updates, summarizing comments, suggesting next steps, or answering questions about this movement and its ideas. When relevant, use the "Similar movements/ideas elsewhere on Plot" context to suggest what has worked elsewhere. Be concise and practical. If the user asks to create tasks or post an update, acknowledge it and suggest they use the app's existing actions for now (we'll add one-click actions later).`;
+Help with drafting updates, summarizing comments, suggesting next steps, or answering questions about this movement and its ideas. When relevant, use the "Similar movements/ideas elsewhere on Plot" context to suggest what has worked elsewhere. Be concise and practical. If the user asks to create tasks or post an update, acknowledge it and suggest they use the app's existing actions for now (we'll add one-click actions later).
+
+Respond as a single JSON object with:
+- "message" (string): the reply you would send to the user.
+- "intent" (object or null): when the user clearly asks you to create tasks or draft an update, set intent like:
+  - { "type": "create_tasks", "tasks": [{ "title": string, "description"?: string }] }
+  - { "type": "post_update", "content": string }
+  Otherwise set intent to null.`;
 
     const historyMessages = Array.isArray(history)
       ? history
@@ -513,9 +637,32 @@ Help with drafting updates, summarizing comments, suggesting next steps, or answ
       { role: 'user', content: message.trim() }
     ];
 
-    const reply = await callOpenAIChat(messages);
+    const raw = await callOpenAIChat(messages, { json: true });
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (_) {
+      parsed = { message: raw, intent: null };
+    }
 
-    return res.json({ message: reply });
+    const replyMessage = typeof parsed.message === 'string' ? parsed.message : raw;
+    const intent = parsed && typeof parsed === 'object' ? parsed.intent || null : null;
+
+    if (IS_DEV) {
+      lastCopilotIntents.push({
+        at: new Date().toISOString(),
+        userId: req.user.id,
+        movementId,
+        ideaId: ideaForContext ? ideaForContext.id : null,
+        lastUserMessage: message.trim(),
+        intent
+      });
+      if (lastCopilotIntents.length > 50) {
+        lastCopilotIntents.shift();
+      }
+    }
+
+    return res.json({ message: replyMessage, intent });
   } catch (err) {
     console.error('AI copilot error:', err);
     const errMessage = err.message || 'Co-Pilot request failed';

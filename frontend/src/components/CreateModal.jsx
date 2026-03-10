@@ -546,6 +546,9 @@ const CreateModal = ({ type, movement, initialCoordinates, initialMovementDraft,
         text: formData.description,
         title: formData.name
       };
+      if (movement?.id) {
+        payload.movementId = movement.id;
+      }
       if (actionType === 'suggest_tags') {
         payload.location = selectedLocation
           ? `${selectedLocation.city}, ${selectedLocation.state}`
