@@ -148,3 +148,72 @@ html[data-theme="dark"] header,
 html[data-theme="dark"] .border-gray-200 {
   border-color: rgb(55 65 81); /* gray-700 */
 }
+
+/* -------------------------------------------------------------------------- */
+/*  UI tokens & component primitives                                          */
+/* -------------------------------------------------------------------------- */
+
+@layer components {
+  /* Panels (floating side trays, modals) */
+  .ui-panel {
+    @apply fixed bottom-9 right-9 z-[101] w-[min(600px,92vw)] rounded-2xl border shadow-[0_30px_80px_-20px_rgba(15,23,42,0.45)] flex flex-col overflow-hidden backdrop-blur-xl bg-white/80 border-white/70 dark:bg-gray-900/70 dark:border-white/15;
+    top: var(--panel-top-offset, 88px);
+  }
+
+  .ui-panel-pill {
+    @apply fixed right-9 z-[101] rounded-full px-4 py-2 text-sm font-semibold shadow-lg flex items-center gap-2 bg-white/90 text-gray-900 border border-white/70 hover:bg-white dark:bg-gray-900/90 dark:text-gray-100 dark:border-white/15 dark:hover:bg-gray-800;
+    top: var(--panel-top-offset, 88px);
+  }
+
+  .ui-panel-header {
+    @apply px-4 pt-4 pb-3 border-b border-white/70 dark:border-white/10 flex items-start justify-between gap-3;
+  }
+
+  .ui-panel-body-scroll {
+    @apply flex-1 overflow-y-auto px-4 pb-4 pt-3 space-y-4;
+  }
+
+  /* Cards & surfaces */
+  .ui-card {
+    @apply rounded-xl border border-gray-200 bg-white/90 dark:border-gray-700 dark:bg-gray-900/60;
+  }
+
+  .ui-card-muted {
+    @apply rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/70;
+  }
+
+  /* Stat tiles (small numeric blocks) */
+  .ui-stat-tile {
+    @apply border rounded-xl px-3 py-2 text-center min-w-[80px] bg-white/80 border-gray-200 dark:bg-gray-900/60 dark:border-gray-700;
+  }
+
+  .ui-stat-tile-label {
+    @apply text-[10px] uppercase tracking-wide text-gray-600 dark:text-gray-400;
+  }
+
+  .ui-stat-tile-value {
+    @apply text-lg font-semibold text-gray-900 dark:text-gray-100;
+  }
+
+  /* Buttons */
+  .ui-button-primary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold bg-emerald-500 border border-emerald-600 text-white shadow-sm hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .ui-button-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold bg-white border border-gray-300 text-gray-800 hover:bg-gray-50 dark:bg-gray-900/70 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .ui-button-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700;
+  }
+
+  /* Pills / tags */
+  .ui-tag-pill {
+    @apply px-2.5 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700;
+  }
+
+  .ui-stat-tile-link {
+    @apply border rounded-xl px-3 py-2 text-center min-w-[80px] bg-white/80 border-gray-200 dark:bg-gray-900/60 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800;
+  }
+}

@@ -435,7 +435,8 @@ const CreateModal = ({ type, movement, initialCoordinates, initialMovementDraft,
             city: boundaryCity.trim(),
             state: boundaryState.trim(),
             boundary: drawnBoundary,
-            tags
+            tags,
+            coverImage: coverImage || null
           });
           if (response.data.movement) {
             onSuccess();
@@ -455,7 +456,8 @@ const CreateModal = ({ type, movement, initialCoordinates, initialMovementDraft,
             state: selectedLocation.state,
             latitude: selectedLocation.latitude,
             longitude: selectedLocation.longitude,
-            tags
+            tags,
+            coverImage: coverImage || null
           });
           if (response.data.movement) {
             onSuccess();
@@ -957,7 +959,7 @@ const CreateModal = ({ type, movement, initialCoordinates, initialMovementDraft,
               <div className="space-y-4">
                 <div>
                   <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                    Cover Image (optional)
+                    {isMovement ? 'Hero image (optional)' : 'Cover image (optional)'}
                   </label>
                   <input
                     ref={coverImageInputRef}
@@ -988,7 +990,9 @@ const CreateModal = ({ type, movement, initialCoordinates, initialMovementDraft,
                       className={`w-full border-2 border-dashed ${isDark ? 'border-gray-600 hover:border-green-500' : 'border-gray-300 hover:border-green-500'} rounded-lg p-6 transition-colors flex flex-col items-center justify-center gap-2`}
                     >
                       <Upload className={`w-6 h-6 ${isDark ? 'text-gray-400' : 'text-gray-400'}`} />
-                      <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Click to upload cover image</span>
+                      <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        {isMovement ? 'Click to upload hero image' : 'Click to upload cover image'}
+                      </span>
                     </button>
                   )}
                 </div>

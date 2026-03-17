@@ -76,6 +76,7 @@ const PlotApp = () => {
   const [previewMovement, setPreviewMovement] = useState(null);
   const [returnToMovement, setReturnToMovement] = useState(null);
   const [showIntelligenceLayer, setShowIntelligenceLayer] = useState(false);
+  const [is3DMode, setIs3DMode] = useState(false);
 
   // WebSocket setup - get token from cookies via API call
   const [wsToken, setWsToken] = useState(null);
@@ -153,9 +154,10 @@ const PlotApp = () => {
     const availableHeight = Math.max(200, window.innerHeight - headerHeight);
     parent.style.height = `${availableHeight}px`;
 
-    // Previous isDark-based styles (revert by uncommenting and removing custom style):
-    // const initialStyle = isDark ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/streets-v12';
-    const initialStyle = 'mapbox://styles/leidio/cmlbfxs1i003101quh2aah4sb';
+    // Use a stable built-in Mapbox style to avoid custom iconset/source issues
+    const initialStyle = isDark
+      ? 'mapbox://styles/mapbox/dark-v11'
+      : 'mapbox://styles/mapbox/streets-v12';
 
     setMapInitStarted(true);
     setMapError(null);
@@ -299,19 +301,16 @@ const PlotApp = () => {
     };
   }, [mapReady]);
 
-  // Set map container height explicitly based on available space
+  // Keep map and panels aligned under the header as it expands/collapses
   useEffect(() => {
     const updateMapHeight = () => {
       if (headerRef.current && mapContainer.current?.parentElement) {
         const headerHeight = headerRef.current.offsetHeight;
-        const searchBarHeight = viewMode !== 'movements' && showSearch
-          ? document.querySelector('[data-search-bar]')?.offsetHeight || 0
-          : 0;
-        const availableHeight = Math.max(
-          200,
-          window.innerHeight - headerHeight - searchBarHeight
+        // Keep movement/idea panels snug under the header, regardless of collapsed/expanded height
+        document.documentElement.style.setProperty(
+          '--panel-top-offset',
+          `${headerHeight + 8}px`
         );
-        mapContainer.current.parentElement.style.height = `${availableHeight}px`;
         if (map.current) {
           map.current.resize();
         }
@@ -322,6 +321,36 @@ const PlotApp = () => {
     window.addEventListener('resize', updateMapHeight);
     return () => window.removeEventListener('resize', updateMapHeight);
   }, [viewMode, showSearch, mapReady]);
+
+  // Toggle 2D / 3D map mode (terrain + camera pitch)
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const mapInstance = map.current;
+
+    if (is3DMode) {
+      if (!mapInstance.getSource('mapbox-dem')) {
+        mapInstance.addSource('mapbox-dem', {
+          type: 'raster-dem',
+          url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+          tileSize: 512,
+          maxzoom: 14
+        });
+      }
+      mapInstance.setTerrain({ source: 'mapbox-dem', exaggeration: 1.3 });
+      mapInstance.easeTo({
+        pitch: 60,
+        bearing: mapInstance.getBearing(),
+        duration: 800
+      });
+    } else {
+      mapInstance.setTerrain(null);
+      mapInstance.easeTo({
+        pitch: 0,
+        bearing: 0,
+        duration: 600
+      });
+    }
+  }, [is3DMode, mapReady]);
 
   // Also resize on window resize
   useEffect(() => {
@@ -603,57 +632,31 @@ const PlotApp = () => {
         />
       </div>
 
-      {showSearch && viewMode !== 'movements' && (
-        <div data-search-bar className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 relative flex-shrink-0">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              // If on movement page, close it and show search results
-              if (viewMode === 'movement-details' && searchQuery.trim()) {
-                setViewMode('movements');
-                setSelectedMovement(null);
-                setIdeas([]);
-              }
-            }}
-            className="relative"
-          >
-            <input
-              type="text"
-              placeholder="Search movements, ideas, locations..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                // If on movement page and user starts typing, close it and show search results
-                if (viewMode === 'movement-details' && e.target.value.trim()) {
-                  setViewMode('movements');
-                  setSelectedMovement(null);
-                  setIdeas([]);
-                }
-              }}
-              className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
-              autoFocus
-            />
-            <button
-              type="button"
-              onClick={handleClearSearch}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-              aria-label="Close search"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </form>
-        </div>
-      )}
-
       <div className="flex-1 relative overflow-hidden w-full" style={{ minHeight: 200 }}>
         <div ref={mapContainer} className="absolute inset-0 z-0" style={{ width: '100%', height: '100%' }} />
+
+        {/* 3D toggle */}
+        {mapInitStarted && !mapError && (
+          <button
+            type="button"
+            onClick={() => setIs3DMode(prev => !prev)}
+            className={`absolute left-4 top-4 z-[90] pointer-events-auto px-3 py-1.5 rounded-full text-xs font-medium border shadow-sm ${
+              is3DMode
+                ? 'bg-gray-900 text-white border-gray-800'
+                : 'bg-white/95 text-gray-700 border-gray-200 hover:bg-gray-50'
+            }`}
+            aria-pressed={is3DMode}
+          >
+            {is3DMode ? '3D view on' : '3D view off'}
+          </button>
+        )}
 
         {/* Intelligence mode back button */}
         {showIntelligenceLayer && viewMode === 'movements' && (
           <button
             type="button"
             onClick={() => setShowIntelligenceLayer(false)}
-            className="absolute left-4 top-4 z-[90] pointer-events-auto flex items-center gap-2 px-4 py-2 rounded-full bg-white/95 dark:bg-gray-900/95 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg"
+            className="absolute left-4 top-12 z-[90] pointer-events-auto flex items-center gap-2 px-4 py-2 rounded-full bg-white/95 dark:bg-gray-900/95 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg"
           >
             <span className="-ml-1">&lt;</span>
             <span>Explore</span>

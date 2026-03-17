@@ -6,6 +6,8 @@ const IDEA_SOURCE_ID = 'ideas-source';
 const IDEA_CLUSTER_LAYER_ID = 'ideas-clusters';
 const IDEA_CLUSTER_COUNT_LAYER_ID = 'ideas-cluster-count';
 const IDEA_UNCLUSTERED_LAYER_ID = 'ideas-unclustered';
+const MOVEMENT_BOUNDARY_SOURCE_ID = 'movement-boundary-source';
+const MOVEMENT_BOUNDARY_LAYER_ID = 'movement-boundary-layer';
 
 const fitMapToIdeas = (mapInstance, features, headerCollapsed, movement) => {
   if (!mapInstance) {
@@ -69,6 +71,13 @@ const removeIdeaLayers = (mapInstance) => {
   }
   if (mapInstance.getSource(IDEA_SOURCE_ID)) {
     mapInstance.removeSource(IDEA_SOURCE_ID);
+  }
+
+  if (mapInstance.getLayer(MOVEMENT_BOUNDARY_LAYER_ID)) {
+    mapInstance.removeLayer(MOVEMENT_BOUNDARY_LAYER_ID);
+  }
+  if (mapInstance.getSource(MOVEMENT_BOUNDARY_SOURCE_ID)) {
+    mapInstance.removeSource(MOVEMENT_BOUNDARY_SOURCE_ID);
   }
 };
 
@@ -169,6 +178,46 @@ export const useIdeaMarkers = ({
       detachHandlers.length = 0;
       removeIdeaLayers(mapInstance);
 
+      // Draw the movement boundary if this movement was created with a polygon.
+      const boundary = movement?.boundary;
+      if (boundary?.type === 'Polygon' && Array.isArray(boundary.coordinates)) {
+        const boundaryFeatureCollection = {
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              properties: {},
+              geometry: {
+                type: 'Polygon',
+                coordinates: boundary.coordinates
+              }
+            }
+          ]
+        };
+
+        if (mapInstance.getSource(MOVEMENT_BOUNDARY_SOURCE_ID)) {
+          mapInstance.getSource(MOVEMENT_BOUNDARY_SOURCE_ID).setData(boundaryFeatureCollection);
+        } else {
+          mapInstance.addSource(MOVEMENT_BOUNDARY_SOURCE_ID, {
+            type: 'geojson',
+            data: boundaryFeatureCollection
+          });
+        }
+
+        if (!mapInstance.getLayer(MOVEMENT_BOUNDARY_LAYER_ID)) {
+          mapInstance.addLayer({
+            id: MOVEMENT_BOUNDARY_LAYER_ID,
+            type: 'line',
+            source: MOVEMENT_BOUNDARY_SOURCE_ID,
+            paint: {
+              'line-color': '#16a34a',
+              'line-width': 3,
+              'line-opacity': 0.9
+            }
+          });
+        }
+      }
+
       if (!featureCollection.features.length) {
         setHoveredItem(null);
         console.log('[useIdeaMarkers] No ideas to display, zooming to movement location.');
@@ -196,19 +245,19 @@ export const useIdeaMarkers = ({
           source: IDEA_SOURCE_ID,
           filter: ['has', 'point_count'],
           paint: {
-            'circle-color': '#2563eb',
-            'circle-opacity': 0.85,
+            'circle-color': '#ffffff',
+            'circle-opacity': 1,
             'circle-radius': [
               'step',
               ['get', 'point_count'],
-              14,
+              12,
               10,
-              20,
+              16,
               25,
-              28
+              20
             ],
-            'circle-stroke-width': 2,
-            'circle-stroke-color': '#ffffff'
+            'circle-stroke-width': 8,
+            'circle-stroke-color': '#000000'
           }
         });
       }
@@ -237,10 +286,11 @@ export const useIdeaMarkers = ({
           source: IDEA_SOURCE_ID,
           filter: ['!', ['has', 'point_count']],
           paint: {
-            'circle-color': '#2563eb',
-            'circle-radius': 8,
-            'circle-stroke-width': 2,
-            'circle-stroke-color': '#ffffff'
+            // Unclustered idea marker: 24px total (8px circle with 8px stroke)
+            'circle-color': '#ffffff',
+            'circle-radius': 4,
+            'circle-stroke-width': 8,
+            'circle-stroke-color': '#000000'
           }
         });
       }
@@ -288,6 +338,15 @@ export const useIdeaMarkers = ({
         }
       };
 
+      let hoverClearTimeout = null;
+      const scheduleClearHover = () => {
+        if (hoverClearTimeout) return;
+        hoverClearTimeout = setTimeout(() => {
+          hoverClearTimeout = null;
+          setHoveredItem(null);
+        }, 400);
+      };
+
       const unclusteredMouseMoveHandler = (event) => {
         const features =
           event.features ||
@@ -297,11 +356,15 @@ export const useIdeaMarkers = ({
 
         if (!features?.length) {
           mapInstance.getCanvas().style.cursor = '';
-          setHoveredItem(null);
+          scheduleClearHover();
           return;
         }
 
         mapInstance.getCanvas().style.cursor = 'pointer';
+        if (hoverClearTimeout) {
+          clearTimeout(hoverClearTimeout);
+          hoverClearTimeout = null;
+        }
         const feature = features[0];
         const idea = getIdeaFromFeature(feature);
         if (!idea) {
@@ -332,7 +395,7 @@ export const useIdeaMarkers = ({
 
       const unclusteredMouseLeaveHandler = () => {
         mapInstance.getCanvas().style.cursor = '';
-        setHoveredItem(null);
+        scheduleClearHover();
       };
 
       attachHandler('click', IDEA_CLUSTER_LAYER_ID, clusterClickHandler);

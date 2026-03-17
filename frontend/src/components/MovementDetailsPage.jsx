@@ -24,30 +24,28 @@ const MovementDetailsPage = ({
   const [addIdeaMode, setAddIdeaMode] = useState(false);
   const [hoveredItem, setHoveredItem] = useState(null);
 
-  // Convert a mouse event (viewport coords) to lng/lat and request add idea.
-  // Used by the map-area overlay so clicks are handled in React instead of relying on map click.
-  const handleMapAreaClick = useCallback(
-    (event) => {
-      if (!mapRef?.current || !movement || !currentUser || !addIdeaMode) return;
+  // In add-idea mode, handle clicks directly on the Mapbox map so pan/zoom still work.
+  useEffect(() => {
+    if (!mapRef?.current || !mapReady || !addIdeaMode || !movement || !currentUser) return;
+    const mapInstance = mapRef.current;
 
-      const mapInstance = mapRef.current;
-      const container = mapInstance.getContainer();
-      const rect = container.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-
-      const point = [x, y];
-      const ideaFeatures = mapInstance.queryRenderedFeatures(point, {
+    const handleMapClick = (e) => {
+      // Ignore clicks on existing idea markers/clusters
+      const ideaFeatures = mapInstance.queryRenderedFeatures(e.point, {
         layers: ['ideas-unclustered', 'ideas-clusters']
       });
       if (ideaFeatures && ideaFeatures.length > 0) return;
 
-      const lngLat = mapInstance.unproject(point);
-      onRequestAddIdea({ longitude: lngLat.lng, latitude: lngLat.lat });
+      onRequestAddIdea({ longitude: e.lngLat.lng, latitude: e.lngLat.lat });
       setAddIdeaMode(false);
-    },
-    [addIdeaMode, mapRef, movement, currentUser, onRequestAddIdea]
-  );
+    };
+
+    mapInstance.on('click', handleMapClick);
+
+    return () => {
+      mapInstance.off('click', handleMapClick);
+    };
+  }, [addIdeaMode, mapReady, mapRef, movement, currentUser, onRequestAddIdea]);
 
   useEffect(() => {
     if (!mapRef?.current || !mapReady) return;
@@ -55,6 +53,8 @@ const MovementDetailsPage = ({
 
     if (addIdeaMode && mapInstance.getCanvas()) {
       mapInstance.getCanvas().style.cursor = 'crosshair';
+    } else if (mapInstance.getCanvas()) {
+      mapInstance.getCanvas().style.cursor = '';
     }
 
     return () => {
@@ -79,7 +79,6 @@ const MovementDetailsPage = ({
         onIdeaSelect={onIdeaSelect}
         onCreateIdea={() => setAddIdeaMode(true)}
         addIdeaMode={addIdeaMode}
-        onMapAreaClick={addIdeaMode ? handleMapAreaClick : undefined}
         onLocationClick={onLocationClick}
         onFollowChange={onFollowChange}
         onTagClick={onTagClick}
@@ -87,7 +86,10 @@ const MovementDetailsPage = ({
         loadIdeas={loadIdeas}
         isIdeaOpen={isIdeaOpen}
       />
-      <HoverPreviewModal hoveredItem={hoveredItem} />
+      <HoverPreviewModal
+        hoveredItem={hoveredItem}
+        onViewIdea={onIdeaSelect}
+      />
     </>
   );
 };

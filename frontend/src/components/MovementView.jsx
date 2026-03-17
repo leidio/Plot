@@ -18,7 +18,6 @@ const MovementView = ({
   onIdeaSelect,
   onCreateIdea,
   addIdeaMode,
-  onMapAreaClick,
   onLocationClick,
   onFollowChange,
   onTagClick,
@@ -36,6 +35,7 @@ const MovementView = ({
   const [suggestedAreaSummary, setSuggestedAreaSummary] = useState('');
   const [addingIdeaId, setAddingIdeaId] = useState(null);
   const contentRef = useRef(null);
+  const ideasListRef = useRef(null);
   const viewers = usePresence({ socket, isConnected, movement, currentUser });
 
   const handleSuggestIdeas = async () => {
@@ -87,7 +87,7 @@ const MovementView = ({
   }, [movement, currentUser]);
 
   const plottersCount = movement?._count?.members || 0;
-  const locationsCount = ideas?.length || 0;
+  const ideasCount = ideas?.length || 0;
   const raisedAmount = ideas?.reduce((sum, idea) => sum + (idea.fundingRaised || 0), 0) || 0;
 
   const handleFollowToggle = async () => {
@@ -136,15 +136,6 @@ const MovementView = ({
 
   return (
     <div className="absolute inset-0 pointer-events-none">
-      {/* Add-idea overlay over the map */}
-      {addIdeaMode && onMapAreaClick && (
-        <div
-          className="absolute inset-0 cursor-crosshair z-[1]"
-          style={{ pointerEvents: 'auto' }}
-          onClick={onMapAreaClick}
-          aria-label="Click map to add idea"
-        />
-      )}
       {addIdeaMode && currentUser && (
         <div
           className={`pointer-events-auto absolute top-4 left-1/2 transform -translate-x-1/2 ${
@@ -165,28 +156,16 @@ const MovementView = ({
         <button
           type="button"
           onClick={() => setPanelCollapsed(false)}
-          className={`fixed top-[88px] right-9 z-[101] rounded-full px-4 py-2 text-sm font-semibold shadow-lg flex items-center gap-2 pointer-events-auto ${
-            isDark
-              ? 'bg-gray-900/90 text-gray-100 border border-white/15 hover:bg-gray-800'
-              : 'bg-white/90 text-gray-900 border border-white/70 hover:bg-white'
-          }`}
+          className="ui-panel-pill pointer-events-auto"
           aria-label="Expand movement details"
         >
           <ChevronUp className="w-4 h-4 rotate-90" />
           <span className="truncate max-w-[180px]">{movement.name}</span>
         </button>
       ) : !isIdeaOpen ? (
-        <div
-          className={`fixed top-[88px] bottom-9 right-9 z-[101] w-[min(420px,92vw)] rounded-2xl border shadow-[0_30px_80px_-20px_rgba(15,23,42,0.45)] flex flex-col overflow-hidden backdrop-blur-xl pointer-events-auto ${
-            isDark ? 'bg-gray-900/70 border-white/15' : 'bg-white/80 border-white/70'
-          }`}
-        >
+        <div className="ui-panel pointer-events-auto">
           {/* Panel header */}
-          <div
-            className={`px-4 pt-3 pb-2 flex items-start justify-between gap-3 border-b ${
-              isDark ? 'border-white/10' : 'border-white/70'
-            }`}
-          >
+          <div className="ui-panel-header">
             <div className="flex-1 min-w-0">
               <button
                 type="button"
@@ -326,80 +305,71 @@ const MovementView = ({
             </div>
           </div>
 
-          {/* Panel body */}
-          <div
-            ref={contentRef}
-            className="flex-1 overflow-y-auto px-4 pb-4 pt-3 space-y-4"
-          >
-            <div className="grid grid-cols-3 gap-2">
+          {/* Hero image */}
+          <div className="ui-card p-0 overflow-hidden mb-3">
+            {movement.coverImage ? (
+              <img
+                src={movement.coverImage}
+                alt={movement.name}
+                className="w-full h-36 md:h-44 object-cover"
+              />
+            ) : (
               <div
-                className={`border rounded-xl px-3 py-2 text-center min-w-[80px] ${
-                  isDark ? 'bg-gray-900/60 border-gray-700' : 'bg-white/80 border-gray-200'
+                className={`h-24 md:h-28 flex items-center justify-center text-xs font-medium ${
+                  isDark
+                    ? 'bg-gray-900/70 text-gray-500'
+                    : 'bg-gray-100 text-gray-500'
                 }`}
               >
-                <div
-                  className={`text-lg font-semibold ${
-                    isDark ? 'text-gray-100' : 'text-gray-900'
-                  }`}
-                >
+                Hero image placeholder
+              </div>
+            )}
+          </div>
+
+          {/* Panel body */}
+          <div ref={contentRef} className="ui-panel-body-scroll">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="ui-stat-tile">
+                <div className="ui-stat-tile-value">
                   {plottersCount}
                 </div>
-                <div
-                  className={`text-[10px] uppercase tracking-wide ${
-                    isDark ? 'text-gray-400' : 'text-gray-600'
-                  }`}
-                >
+                <div className="ui-stat-tile-label">
                   Plotters
                 </div>
               </div>
-              <div
-                className={`border rounded-xl px-3 py-2 text-center min-w-[80px] ${
-                  isDark ? 'bg-gray-900/60 border-gray-700' : 'bg-white/80 border-gray-200'
-                }`}
+              <button
+                type="button"
+                className="ui-stat-tile-link text-left"
+                onClick={() => {
+                  if (ideasListRef.current && contentRef.current) {
+                    const container = contentRef.current;
+                    const targetTop = ideasListRef.current.offsetTop;
+                    container.scrollTo({
+                      top: targetTop - 16,
+                      behavior: 'smooth'
+                    });
+                  }
+                }}
               >
-                <div
-                  className={`text-lg font-semibold ${
-                    isDark ? 'text-gray-100' : 'text-gray-900'
-                  }`}
-                >
-                  {locationsCount}
+                <div className="ui-stat-tile-value">
+                  {ideasCount}
                 </div>
-                <div
-                  className={`text-[10px] uppercase tracking-wide ${
-                    isDark ? 'text-gray-400' : 'text-gray-600'
-                  }`}
-                >
-                  Locations
+                <div className="ui-stat-tile-label">
+                  Ideas
                 </div>
-              </div>
-              <div
-                className={`border rounded-xl px-3 py-2 text-center min-w-[80px] ${
-                  isDark ? 'bg-gray-900/60 border-gray-700' : 'bg-white/80 border-gray-200'
-                }`}
-              >
-                <div
-                  className={`text-lg font-semibold ${
-                    isDark ? 'text-gray-100' : 'text-gray-900'
-                  }`}
-                >
+              </button>
+              <div className="ui-stat-tile">
+                <div className="ui-stat-tile-value">
                   ${(raisedAmount / 100).toLocaleString()}
                 </div>
-                <div
-                  className={`text-[10px] uppercase tracking-wide ${
-                    isDark ? 'text-gray-400' : 'text-gray-600'
-                  }`}
-                >
+                <div className="ui-stat-tile-label">
                   Raised
                 </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3">
-              <div
-                className={`rounded-xl border p-3 ${
-                  isDark ? 'border-gray-700 bg-gray-900/60' : 'border-gray-200 bg-white/90'
-                }`}
-              >
+              <div className="ui-card p-3">
                 <h2
                   className={`font-semibold text-sm mb-1 ${
                     isDark ? 'text-gray-200' : 'text-gray-900'
@@ -415,11 +385,7 @@ const MovementView = ({
                   {movement.description}
                 </p>
               </div>
-              <div
-                className={`rounded-xl border p-3 ${
-                  isDark ? 'border-gray-700 bg-gray-900/60' : 'border-gray-200 bg-white/90'
-                }`}
-              >
+              <div className="ui-card p-3">
                 <h2
                   className={`font-semibold text-sm mb-1 ${
                     isDark ? 'text-gray-200' : 'text-gray-900'
@@ -447,11 +413,7 @@ const MovementView = ({
                       <button
                         key={tag}
                         onClick={() => onTagClick && onTagClick(tag)}
-                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium cursor-pointer transition-colors ${
-                          isDark
-                            ? 'bg-gray-800 text-gray-200 hover:bg-gray-700'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
+                        className="ui-tag-pill cursor-pointer"
                       >
                         {tag}
                       </button>
@@ -461,17 +423,76 @@ const MovementView = ({
               </div>
             </div>
 
+            {/* Ideas list */}
+            {ideas && ideas.length > 0 && (
+              <div ref={ideasListRef} className="ui-card p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2
+                    className={`font-semibold text-sm ${
+                      isDark ? 'text-gray-200' : 'text-gray-900'
+                    }`}
+                  >
+                    Ideas
+                  </h2>
+                  <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+                    <span>Newest</span>
+                    <span>•</span>
+                    <span>Fundraising</span>
+                  </div>
+                </div>
+                <ul className="space-y-2 max-h-64 overflow-y-auto">
+                  {ideas.map((idea) => (
+                    <li
+                      key={idea.id}
+                      className="rounded-xl border border-gray-200 bg-white hover:bg-gray-50 dark:bg-gray-900/80 dark:border-gray-700 dark:hover:bg-gray-800 cursor-pointer transition-colors"
+                      onClick={() => onIdeaSelect && onIdeaSelect(idea)}
+                    >
+                      <div className="flex gap-3 p-3">
+                        {idea.coverImage && (
+                          <img
+                            src={idea.coverImage}
+                            alt={idea.title}
+                            className="w-20 h-16 rounded-lg object-cover flex-shrink-0"
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className={`text-sm font-semibold truncate ${
+                              isDark ? 'text-gray-100' : 'text-gray-900'
+                            }`}
+                          >
+                            {idea.title}
+                          </p>
+                          <p
+                            className={`text-xs mt-0.5 line-clamp-2 ${
+                              isDark ? 'text-gray-400' : 'text-gray-600'
+                            }`}
+                          >
+                            {idea.description}
+                          </p>
+                          <div className="mt-1 flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+                            <span>
+                              {(idea._count?.supporters || 0).toLocaleString()} supporters
+                            </span>
+                            <span>
+                              ${((idea.fundingRaised || 0) / 100).toLocaleString()} raised
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {currentUser && (
               <div className="space-y-3">
                 <div className="flex flex-wrap justify-center gap-2">
                   <button
                     onClick={handleSuggestIdeas}
                     disabled={suggestIdeasLoading}
-                    className={`border px-5 py-2.5 rounded-xl flex items-center gap-2 text-sm font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                      isDark
-                        ? 'bg-emerald-700 border-emerald-600 hover:bg-emerald-600 text-white'
-                        : 'bg-emerald-500 border-emerald-600 hover:bg-emerald-600 text-white'
-                    }`}
+                    className="ui-button-primary"
                   >
                     {suggestIdeasLoading ? (
                       <>
@@ -487,11 +508,7 @@ const MovementView = ({
                   </button>
                   <button
                     onClick={onCreateIdea}
-                    className={`border px-5 py-2.5 rounded-xl flex items-center gap-2 text-sm font-semibold ${
-                      isDark
-                        ? 'bg-gray-900/70 border-gray-700 text-gray-100 hover:bg-gray-800'
-                        : 'bg-white border-gray-300 text-gray-800 hover:bg-gray-50'
-                    }`}
+                    className="ui-button-secondary"
                   >
                     <Lightbulb className="w-4 h-4" />
                     Add an idea

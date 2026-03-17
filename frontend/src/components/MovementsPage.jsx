@@ -103,7 +103,10 @@ const MovementsPage = ({
         </div>
       </div>
 
-      <HoverPreviewModal hoveredItem={hoveredItem} />
+      <HoverPreviewModal
+        hoveredItem={hoveredItem}
+        onViewMovement={onMovementSelect}
+      />
     </>
   );
 };

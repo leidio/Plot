@@ -77,6 +77,7 @@ const createPolygonFeatureCollection = (movements = []) => {
       }
       return {
         type: 'Feature',
+        id: movement?.id || index,
         properties: {
           movementId: movement?.id || '',
           movementIndex: index
@@ -114,6 +115,7 @@ const createFeatureCollection = (movements = []) => {
 
       return {
         type: 'Feature',
+        id: movement?.id || index,
         properties: {
           movementId: movement?.id || '',
           movementIndex: index
@@ -248,18 +250,23 @@ export const useMovementMarkers = ({
               data: polygonCollection.featureCollection
             });
           }
-          if (!mapInstance.getLayer(MOVEMENT_POLYGON_LAYER_ID)) {
-            mapInstance.addLayer({
-              id: MOVEMENT_POLYGON_LAYER_ID,
-              type: 'fill',
-              source: MOVEMENT_POLYGON_SOURCE_ID,
-              paint: {
-                'fill-color': '#16a34a',
-                'fill-opacity': 0.25,
-                'fill-outline-color': '#16a34a'
-              }
-            });
+      if (!mapInstance.getLayer(MOVEMENT_POLYGON_LAYER_ID)) {
+        mapInstance.addLayer({
+          id: MOVEMENT_POLYGON_LAYER_ID,
+          type: 'fill',
+          source: MOVEMENT_POLYGON_SOURCE_ID,
+          paint: {
+            'fill-color': [
+              'case',
+              ['boolean', ['feature-state', 'hover'], false],
+              '#22c55e',
+              '#16a34a'
+            ],
+            'fill-opacity': 0.25,
+            'fill-outline-color': '#16a34a'
           }
+        });
+      }
         }
 
         if (!hasPoints) {
@@ -298,19 +305,20 @@ export const useMovementMarkers = ({
           source: MOVEMENT_SOURCE_ID,
           filter: ['has', 'point_count'],
           paint: {
-            'circle-color': '#16a34a',
-            'circle-opacity': 0.85,
+            // Clustered markers: larger but same visual treatment
+            'circle-color': '#ffffff',
+            'circle-opacity': 1,
             'circle-radius': [
               'step',
               ['get', 'point_count'],
-              18,
+              12,  // ~24px diameter base
               15,
-              26,
+              16,
               30,
-              34
+              20
             ],
-            'circle-stroke-width': 2,
-            'circle-stroke-color': '#ffffff'
+            'circle-stroke-width': 8,
+            'circle-stroke-color': '#000000'
           }
         });
       }
@@ -339,10 +347,16 @@ export const useMovementMarkers = ({
           source: MOVEMENT_SOURCE_ID,
           filter: ['!', ['has', 'point_count']],
           paint: {
-            'circle-color': '#16a34a',
-            'circle-radius': 9,
-            'circle-stroke-width': 2,
-            'circle-stroke-color': '#ffffff'
+            // Unclustered movement marker: 24px total (8px circle with 8px stroke)
+            'circle-color': [
+              'case',
+              ['boolean', ['feature-state', 'hover'], false],
+              '#22c55e',
+              '#ffffff'
+            ],
+            'circle-radius': 4,
+            'circle-stroke-width': 8,
+            'circle-stroke-color': '#000000'
           }
         });
       }
@@ -390,6 +404,48 @@ export const useMovementMarkers = ({
         }
       };
 
+      let hoveredPointId = null;
+      let hoveredPolygonId = null;
+      let hoverClearTimeout = null;
+
+      const clearHoverState = () => {
+        if (hoverClearTimeout) {
+          clearTimeout(hoverClearTimeout);
+          hoverClearTimeout = null;
+        }
+        if (hoveredPointId !== null) {
+          try {
+            mapInstance.setFeatureState(
+              { source: MOVEMENT_SOURCE_ID, id: hoveredPointId },
+              { hover: false }
+            );
+          } catch (e) {
+            // ignore
+          }
+          hoveredPointId = null;
+        }
+        if (hoveredPolygonId !== null) {
+          try {
+            mapInstance.setFeatureState(
+              { source: MOVEMENT_POLYGON_SOURCE_ID, id: hoveredPolygonId },
+              { hover: false }
+            );
+          } catch (e) {
+            // ignore
+          }
+          hoveredPolygonId = null;
+        }
+      };
+
+      const scheduleClearHover = () => {
+        if (hoverClearTimeout) return;
+        hoverClearTimeout = setTimeout(() => {
+          hoverClearTimeout = null;
+          clearHoverState();
+          setHoveredItem(null);
+        }, 400);
+      };
+
       const unclusteredMouseMoveHandler = (event) => {
         const features =
           event.features ||
@@ -399,12 +455,29 @@ export const useMovementMarkers = ({
 
         if (!features?.length) {
           mapInstance.getCanvas().style.cursor = '';
-          setHoveredItem(null);
+          scheduleClearHover();
           return;
         }
 
         mapInstance.getCanvas().style.cursor = 'pointer';
+        if (hoverClearTimeout) {
+          clearTimeout(hoverClearTimeout);
+          hoverClearTimeout = null;
+        }
         const feature = features[0];
+        const id = feature.id;
+        if (id !== undefined && id !== hoveredPointId) {
+          clearHoverState();
+          try {
+            mapInstance.setFeatureState(
+              { source: MOVEMENT_SOURCE_ID, id },
+              { hover: true }
+            );
+            hoveredPointId = id;
+          } catch (e) {
+            // ignore
+          }
+        }
         const movement = getMovementFromFeature(feature);
         if (!movement) {
           setHoveredItem(null);
@@ -427,7 +500,7 @@ export const useMovementMarkers = ({
 
       const unclusteredMouseLeaveHandler = () => {
         mapInstance.getCanvas().style.cursor = '';
-        setHoveredItem(null);
+        scheduleClearHover();
       };
 
       attachHandler('click', MOVEMENT_CLUSTER_LAYER_ID, clusterClickHandler);
@@ -435,9 +508,65 @@ export const useMovementMarkers = ({
       attachHandler('mousemove', MOVEMENT_UNCLUSTERED_LAYER_ID, unclusteredMouseMoveHandler);
       attachHandler('mouseleave', MOVEMENT_UNCLUSTERED_LAYER_ID, unclusteredMouseLeaveHandler);
       if (hasPolygons) {
+        const polygonMouseMoveHandler = (event) => {
+          const features =
+            event.features ||
+            mapInstance.queryRenderedFeatures(event.point, {
+              layers: [MOVEMENT_POLYGON_LAYER_ID]
+            });
+
+          if (!features?.length) {
+            mapInstance.getCanvas().style.cursor = '';
+            scheduleClearHover();
+            return;
+          }
+
+          mapInstance.getCanvas().style.cursor = 'pointer';
+          if (hoverClearTimeout) {
+            clearTimeout(hoverClearTimeout);
+            hoverClearTimeout = null;
+          }
+          const feature = features[0];
+          const id = feature.id;
+          if (id !== undefined && id !== hoveredPolygonId) {
+            clearHoverState();
+            try {
+              mapInstance.setFeatureState(
+                { source: MOVEMENT_POLYGON_SOURCE_ID, id },
+                { hover: true }
+              );
+              hoveredPolygonId = id;
+            } catch (e) {
+              // ignore
+            }
+          }
+
+          const movement = getMovementFromFeature(feature);
+          if (!movement) {
+            setHoveredItem(null);
+            return;
+          }
+
+          const coords = feature.geometry?.coordinates?.[0]?.[0];
+          const position = projectToScreenPosition(mapInstance, coords || []);
+
+          if (position) {
+            setHoveredItem({
+              type: 'movement',
+              item: movement,
+              position
+            });
+          }
+        };
+
+        const polygonMouseLeaveHandler = () => {
+          mapInstance.getCanvas().style.cursor = '';
+          scheduleClearHover();
+        };
+
         attachHandler('click', MOVEMENT_POLYGON_LAYER_ID, unclusteredClickHandler);
-        attachHandler('mousemove', MOVEMENT_POLYGON_LAYER_ID, unclusteredMouseMoveHandler);
-        attachHandler('mouseleave', MOVEMENT_POLYGON_LAYER_ID, unclusteredMouseLeaveHandler);
+        attachHandler('mousemove', MOVEMENT_POLYGON_LAYER_ID, polygonMouseMoveHandler);
+        attachHandler('mouseleave', MOVEMENT_POLYGON_LAYER_ID, polygonMouseLeaveHandler);
       }
 
       // Don't automatically fit bounds - let the map stay at user's location or default center

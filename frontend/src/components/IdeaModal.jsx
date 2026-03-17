@@ -357,7 +357,7 @@ const IdeaModal = ({ idea, onClose, currentUser, onSupport, socket, isConnected,
                   )}
 
                   {(images.length > 0 || isCreator) && (
-                    <div className="rounded-2xl border border-gray-200 p-3 bg-white">
+                    <div className="ui-card p-3">
                       <div className="flex items-center justify-between mb-3">
                         <h3 className="font-semibold text-sm text-gray-900">Images</h3>
                         {isCreator && (
@@ -528,7 +528,7 @@ const IdeaModal = ({ idea, onClose, currentUser, onSupport, socket, isConnected,
                 {/* Right: sidebar summary / actions */}
                 <div className="space-y-4">
                   {/* Funding summary */}
-                  <div className="rounded-2xl border border-gray-200 p-4 bg-gray-50">
+                    <div className="ui-card-muted p-4">
                     <div className="flex items-baseline justify-between mb-3">
                       <div>
                         <p className="text-xs uppercase tracking-wide text-gray-500">
@@ -563,7 +563,7 @@ const IdeaModal = ({ idea, onClose, currentUser, onSupport, socket, isConnected,
                   </div>
 
                   {/* Support / share */}
-                  <div className="rounded-2xl border border-gray-200 p-4 bg-white space-y-3">
+                  <div className="ui-card p-4 space-y-3">
                     <button
                       onClick={() => onSupport && onSupport(idea.id)}
                       className={`w-full py-2.5 rounded-lg flex items-center justify-center gap-2 text-sm font-medium ${
@@ -588,7 +588,7 @@ const IdeaModal = ({ idea, onClose, currentUser, onSupport, socket, isConnected,
 
                   {/* Tags / collections (simple placeholders) */}
                   {idea.tags && idea.tags.length > 0 && (
-                    <div className="rounded-2xl border border-gray-200 p-4 bg-white space-y-2">
+                    <div className="ui-card p-4 space-y-2">
                       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                         Tags
                       </h3>
@@ -596,7 +596,7 @@ const IdeaModal = ({ idea, onClose, currentUser, onSupport, socket, isConnected,
                         {idea.tags.map((tag) => (
                           <span
                             key={tag}
-                            className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[11px] font-medium"
+                            className="ui-tag-pill"
                           >
                             {tag}
                           </span>

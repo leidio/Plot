@@ -579,10 +579,14 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
 
   return (
     <div
-      className={`fixed top-[88px] bottom-9 right-9 z-[101] w-[min(420px,92vw)] rounded-2xl border shadow-[0_30px_80px_-20px_rgba(15,23,42,0.45)] flex flex-col overflow-hidden backdrop-blur-xl ${
+      className={`fixed right-9 z-[101] w-[min(600px,92vw)] rounded-2xl border shadow-[0_30px_80px_-20px_rgba(15,23,42,0.45)] flex flex-col overflow-hidden backdrop-blur-xl ${
         isDark ? 'bg-gray-900/50 border-white/10' : 'bg-white/50 border-white/60'
       }`}
-      style={{ minHeight: 260 }}
+      style={{
+        minHeight: 260,
+        top: 'var(--panel-top-offset, 88px)',
+        maxHeight: 'calc(100vh - var(--panel-top-offset, 88px) - 36px)'
+      }}
       role="dialog"
       aria-labelledby="intelligence-title"
     >

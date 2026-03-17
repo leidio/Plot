@@ -43,37 +43,58 @@ const Header = ({
   ];
 
   const isHomePage = viewMode === 'movements';
+  const isExpanded = isHomePage || showSearch;
 
   return (
-    <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4 z-10 flex-shrink-0">
+    <header
+      className={`bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 ${
+        isExpanded ? 'py-4' : 'py-2'
+      } z-10 flex-shrink-0 transition-[padding] duration-200`}
+      onMouseEnter={() => {
+        if (!isHomePage && !showSearch) {
+          onToggleSearch?.();
+        }
+      }}
+      onMouseLeave={() => {
+        if (!isHomePage && showSearch && !searchQuery?.trim()) {
+          onToggleSearch?.();
+        }
+      }}
+    >
       {/* Single row: Logo + CTA, Search/Tags (centered), Hamburger */}
       <div className="flex items-start justify-between">
         {/* Left: Logo and Start a Movement button */}
         <div className="flex items-center space-x-4 flex-shrink-0">
-          <img src={isDark ? plotLogoDark : plotLogo} alt="Plot" className="h-8 w-auto"/>
-          {viewMode === 'movement-details' && selectedMovement ? (
-            <>
+          <img
+            src={isDark ? plotLogoDark : plotLogo}
+            alt="Plot"
+            className={`${isExpanded ? 'h-8' : 'h-6'} w-auto`}
+          />
+          {isExpanded && (
+            viewMode === 'movement-details' && selectedMovement ? (
+              <>
+                <button 
+                  onClick={onBackToMovements}
+                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                >
+                  ← All Movements
+                </button>
+                <span className="text-gray-300 dark:text-gray-600">|</span>
+                <span className="font-medium dark:text-gray-200">{selectedMovement.name}</span>
+              </>
+            ) : (
               <button 
-                onClick={onBackToMovements}
-                className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                onClick={currentUser ? onCreateClick : onSignInClick}
+                className="btn btn-primary rounded-full px-5 py-2 text-sm font-medium"
               >
-                ← All Movements
+                Start a Movement
               </button>
-              <span className="text-gray-300 dark:text-gray-600">|</span>
-              <span className="font-medium dark:text-gray-200">{selectedMovement.name}</span>
-            </>
-          ) : (
-            <button 
-              onClick={currentUser ? onCreateClick : onSignInClick}
-              className="btn btn-primary rounded-full px-5 py-2 text-sm font-medium"
-            >
-              Start a Movement
-            </button>
+            )
           )}
         </div>
         
-        {/* Center: Search bar and tags grouped together (only on home page) */}
-        {isHomePage && (
+        {/* Center: Search bar and tags grouped together (expanded state) */}
+        {isExpanded && (
           <div className="flex flex-col items-center flex-1 max-w-xl mx-8">
             {/* Search Bar */}
             <div className="relative w-full">
