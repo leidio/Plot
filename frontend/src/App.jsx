@@ -36,6 +36,97 @@ const apiCall = async (method, endpoint, data = null) => {
   return axios(config);
 };
 
+/** Set true to show the land-cover map toggle again (overlay plumbing stays in place). */
+const SHOW_LAND_COVER_TOGGLE = false;
+
+/** Stable IDs for the optional preprocessed land-cover overlay (GeoJSON). */
+const LAND_COVER_SOURCE_ID = 'plot-land-cover';
+const LAND_COVER_FILL_LAYER_ID = 'plot-land-cover-fill';
+const LAND_COVER_LINE_LAYER_ID = 'plot-land-cover-line';
+
+function landCoverSampleUrl() {
+  const base = import.meta.env.BASE_URL || '/';
+  const normalized = base.endsWith('/') ? base : `${base}/`;
+  return `${normalized}overlays/land-cover-sample.geojson`;
+}
+
+function findFirstSymbolLayerId(mapInstance) {
+  const style = mapInstance.getStyle();
+  if (!style?.layers) return undefined;
+  const layer = style.layers.find((l) => l.type === 'symbol');
+  return layer?.id;
+}
+
+/**
+ * Ensures land-cover source/layers exist and sets visibility.
+ * Call after style loads (setStyle wipes custom layers).
+ * Inserts below the first symbol layer so base-map labels stay readable; app layers added later stack on top.
+ */
+function syncLandCoverOverlay(mapInstance, visible) {
+  if (!mapInstance?.getStyle?.()?.layers) return;
+
+  const visibility = visible ? 'visible' : 'none';
+
+  try {
+    if (!mapInstance.getSource(LAND_COVER_SOURCE_ID)) {
+      mapInstance.addSource(LAND_COVER_SOURCE_ID, {
+        type: 'geojson',
+        data: landCoverSampleUrl()
+      });
+    }
+
+    const beforeId = findFirstSymbolLayerId(mapInstance);
+
+    if (!mapInstance.getLayer(LAND_COVER_FILL_LAYER_ID)) {
+      mapInstance.addLayer(
+        {
+          id: LAND_COVER_FILL_LAYER_ID,
+          type: 'fill',
+          source: LAND_COVER_SOURCE_ID,
+          paint: {
+            'fill-color': [
+              'match',
+              ['get', 'class'],
+              'forest',
+              '#166534',
+              'water',
+              '#0369a1',
+              'wetland',
+              '#15803d',
+              'urban',
+              '#a16207',
+              '#64748b'
+            ],
+            'fill-opacity': 0.42
+          }
+        },
+        beforeId
+      );
+    }
+
+    if (!mapInstance.getLayer(LAND_COVER_LINE_LAYER_ID)) {
+      mapInstance.addLayer(
+        {
+          id: LAND_COVER_LINE_LAYER_ID,
+          type: 'line',
+          source: LAND_COVER_SOURCE_ID,
+          paint: {
+            'line-color': '#0f172a',
+            'line-opacity': 0.25,
+            'line-width': 1
+          }
+        },
+        beforeId
+      );
+    }
+
+    mapInstance.setLayoutProperty(LAND_COVER_FILL_LAYER_ID, 'visibility', visibility);
+    mapInstance.setLayoutProperty(LAND_COVER_LINE_LAYER_ID, 'visibility', visibility);
+  } catch (err) {
+    console.warn('[Plot] Land cover overlay sync failed:', err);
+  }
+}
+
 const PlotApp = () => {
   const mapContainer = useRef(null);
   const map = useRef(null);
@@ -77,6 +168,8 @@ const PlotApp = () => {
   const [returnToMovement, setReturnToMovement] = useState(null);
   const [showIntelligenceLayer, setShowIntelligenceLayer] = useState(false);
   const [is3DMode, setIs3DMode] = useState(false);
+  const [showLandCoverOverlay, setShowLandCoverOverlay] = useState(false);
+  const showLandCoverOverlayRef = useRef(false);
 
   // WebSocket setup - get token from cookies via API call
   const [wsToken, setWsToken] = useState(null);
@@ -111,6 +204,10 @@ const PlotApp = () => {
 
     return () => cancelAnimationFrame(rafId);
   }, [loadMovements]);
+
+  useEffect(() => {
+    showLandCoverOverlayRef.current = showLandCoverOverlay;
+  }, [showLandCoverOverlay]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -188,33 +285,74 @@ const PlotApp = () => {
     const filterPOILayers = () => {
       const style = map.current.getStyle();
       if (!style || !style.layers) return;
-      
+
       style.layers.forEach((layer) => {
+        // Keep landmarks/civic POIs, hide business/other POIs.
+        // (Uses the layer feature "class" field.)
         if (layer.id.includes('poi-label')) {
-          // Show landmarks & civic places, hide restaurants/shops/lodging
           map.current.setFilter(layer.id, [
             'all',
-            ['match',
+            [
+              'match',
               ['get', 'class'],
-              ['landmark', 'park', 'cemetery', 'place_of_worship', 'school', 
-               'college', 'hospital', 'library', 'museum', 'stadium', 
-               'zoo', 'aquarium', 'golf', 'historic', 'arts_centre',
-               'monument', 'education', 'medical', 'attraction',
-               'arts_and_entertainment', 'tourist_attraction', 'visitor_centre',
-               'gallery', 'theatre', 'cinema', 'general'],
+              [
+                'landmark',
+                'park',
+                'cemetery',
+                'place_of_worship',
+                'school',
+                'college',
+                'hospital',
+                'library',
+                'museum',
+                'stadium',
+                'zoo',
+                'aquarium',
+                'golf',
+                'historic',
+                'arts_centre',
+                'monument',
+                'education',
+                'medical',
+                'attraction',
+                'arts_and_entertainment',
+                'tourist_attraction',
+                'visitor_centre',
+                'gallery',
+                'theatre',
+                'cinema',
+                'general'
+              ],
               true,
               false
             ]
           ]);
         }
+
+        // Raise the zoom level at which *any* road labels (and shields) appear.
+        // Many styles use different source-layer names; be broad and catch
+        // layers whose source-layer mentions "road".
+        if (
+          layer.type === 'symbol' &&
+          typeof layer['source-layer'] === 'string' &&
+          layer['source-layer'].toLowerCase().includes('road')
+        ) {
+          // Only show from zoom ~16 and closer.
+          map.current.setLayerZoomRange(layer.id, 16, 24);
+        }
       });
     };
 
+    const applyPostStyleTweaks = () => {
+      filterPOILayers();
+      syncLandCoverOverlay(map.current, showLandCoverOverlayRef.current);
+    };
+
     // Run on idle (after all rendering complete) for initial load
-    map.current.once('idle', filterPOILayers);
-    
-    // Run on style changes (theme toggle)
-    map.current.on('style.load', filterPOILayers);
+    map.current.once('idle', applyPostStyleTweaks);
+
+    // Run on style changes (theme toggle) — custom sources/layers are cleared by setStyle
+    map.current.on('style.load', applyPostStyleTweaks);
 
     const handleLoad = () => {
       setMapReady(true);
@@ -232,7 +370,7 @@ const PlotApp = () => {
       cancelAnimationFrame(rafId);
       if (map.current) {
         map.current.off('load', handleLoad);
-        map.current.off('style.load', filterPOILayers);
+        map.current.off('style.load', applyPostStyleTweaks);
         map.current.remove();
         map.current = null;
       }
@@ -351,6 +489,12 @@ const PlotApp = () => {
       });
     }
   }, [is3DMode, mapReady]);
+
+  // Land cover overlay visibility (layers re-created on style.load; ref supplies value inside map init)
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    syncLandCoverOverlay(map.current, showLandCoverOverlay);
+  }, [showLandCoverOverlay, mapReady]);
 
   // Also resize on window resize
   useEffect(() => {
@@ -635,20 +779,37 @@ const PlotApp = () => {
       <div className="flex-1 relative overflow-hidden w-full" style={{ minHeight: 200 }}>
         <div ref={mapContainer} className="absolute inset-0 z-0" style={{ width: '100%', height: '100%' }} />
 
-        {/* 3D toggle */}
+        {/* Map controls: 3D + optional land-cover overlay (Phase 1: sample GeoJSON) */}
         {mapInitStarted && !mapError && (
-          <button
-            type="button"
-            onClick={() => setIs3DMode(prev => !prev)}
-            className={`absolute left-4 top-4 z-[90] pointer-events-auto px-3 py-1.5 rounded-full text-xs font-medium border shadow-sm ${
-              is3DMode
-                ? 'bg-gray-900 text-white border-gray-800'
-                : 'bg-white/95 text-gray-700 border-gray-200 hover:bg-gray-50'
-            }`}
-            aria-pressed={is3DMode}
-          >
-            {is3DMode ? '3D view on' : '3D view off'}
-          </button>
+          <div className="absolute left-4 top-4 z-[90] flex flex-col gap-2 pointer-events-none">
+            <button
+              type="button"
+              onClick={() => setIs3DMode(prev => !prev)}
+              className={`pointer-events-auto px-3 py-1.5 rounded-full text-xs font-medium border shadow-sm ${
+                is3DMode
+                  ? 'bg-gray-900 text-white border-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-200'
+                  : 'bg-white/95 text-gray-700 border-gray-200 hover:bg-gray-50 dark:bg-gray-900/95 dark:text-gray-200 dark:border-gray-600'
+              }`}
+              aria-pressed={is3DMode}
+            >
+              {is3DMode ? '3D view on' : '3D view off'}
+            </button>
+            {SHOW_LAND_COVER_TOGGLE && (
+              <button
+                type="button"
+                onClick={() => setShowLandCoverOverlay(prev => !prev)}
+                className={`pointer-events-auto px-3 py-1.5 rounded-full text-xs font-medium border shadow-sm ${
+                  showLandCoverOverlay
+                    ? 'bg-emerald-800 text-white border-emerald-900'
+                    : 'bg-white/95 text-gray-700 border-gray-200 hover:bg-gray-50 dark:bg-gray-900/95 dark:text-gray-200 dark:border-gray-600'
+                }`}
+                aria-pressed={showLandCoverOverlay}
+                title="Demo land-cover polygons near New Orleans (preprocessed GeoJSON)"
+              >
+                {showLandCoverOverlay ? 'Land cover on' : 'Land cover off'}
+              </button>
+            )}
+          </div>
         )}
 
         {/* Intelligence mode back button */}
@@ -656,7 +817,7 @@ const PlotApp = () => {
           <button
             type="button"
             onClick={() => setShowIntelligenceLayer(false)}
-            className="absolute left-4 top-12 z-[90] pointer-events-auto flex items-center gap-2 px-4 py-2 rounded-full bg-white/95 dark:bg-gray-900/95 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg"
+            className={`absolute left-4 z-[90] pointer-events-auto flex items-center gap-2 px-4 py-2 rounded-full bg-white/95 dark:bg-gray-900/95 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg ${SHOW_LAND_COVER_TOGGLE ? 'top-[5.75rem]' : 'top-12'}`}
           >
             <span className="-ml-1">&lt;</span>
             <span>Explore</span>

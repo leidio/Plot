@@ -305,20 +305,12 @@ export const useMovementMarkers = ({
           source: MOVEMENT_SOURCE_ID,
           filter: ['has', 'point_count'],
           paint: {
-            // Clustered markers: larger but same visual treatment
-            'circle-color': '#ffffff',
+            // Clustered markers: solid black circle with centered count.
+            // Keep size consistent so it doesn't look like a huge "heat map".
+            'circle-color': '#000000',
             'circle-opacity': 1,
-            'circle-radius': [
-              'step',
-              ['get', 'point_count'],
-              12,  // ~24px diameter base
-              15,
-              16,
-              30,
-              20
-            ],
-            'circle-stroke-width': 8,
-            'circle-stroke-color': '#000000'
+            'circle-radius': 12, // ~24px diameter
+            'circle-stroke-width': 0
           }
         });
       }

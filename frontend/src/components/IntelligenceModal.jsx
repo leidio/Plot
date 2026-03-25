@@ -23,6 +23,7 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
   const [result, setResult] = useState(null); // { areaSummary?, suggestions?, movements? }
   const [showSelectionBubble, setShowSelectionBubble] = useState(false);
   const [polygonCenterLabel, setPolygonCenterLabel] = useState('');
+  const [polygonAreaKm2, setPolygonAreaKm2] = useState(null);
   const drawRef = useRef(null);
   const deleteMarkerRef = useRef(null);
   const clickHandlerRef = useRef(null);
@@ -42,18 +43,6 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
       deleteMarkerRef.current.remove();
     } catch (_) {}
     deleteMarkerRef.current = null;
-  }
-
-  function getPolygonTopLeft(coordinates) {
-    if (!Array.isArray(coordinates) || !coordinates[0]?.length) return null;
-    const ring = coordinates[0];
-    let minLng = ring[0][0];
-    let maxLat = ring[0][1];
-    for (const [lng, lat] of ring) {
-      if (lng < minLng) minLng = lng;
-      if (lat > maxLat) maxLat = lat;
-    }
-    return [minLng, maxLat];
   }
 
   function getPolygonCenter(coordinates) {
@@ -89,6 +78,48 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
     }
     if (count === 0) return null;
     return [sumLng / count, sumLat / count];
+  }
+
+  // Approximate polygon area in square kilometers using a simple projected shoelace formula.
+  function getPolygonAreaKm2(coordinates) {
+    if (!Array.isArray(coordinates) || !coordinates[0]?.length) return null;
+    const ring = coordinates[0];
+    if (ring.length < 3) return null;
+
+    const R = 6371000; // Earth radius in meters
+    // Use average latitude for projection
+    let latSum = 0;
+    let n = 0;
+    for (const pt of ring) {
+      if (Array.isArray(pt) && typeof pt[0] === 'number' && typeof pt[1] === 'number') {
+        latSum += (pt[1] * Math.PI) / 180;
+        n += 1;
+      }
+    }
+    if (n === 0) return null;
+    const lat0 = latSum / n;
+
+    const projected = ring.map(([lng, lat]) => {
+      const lngRad = (lng * Math.PI) / 180;
+      const latRad = (lat * Math.PI) / 180;
+      const x = R * lngRad * Math.cos(lat0);
+      const y = R * latRad;
+      return [x, y];
+    });
+
+    let area = 0;
+    for (let i = 0; i < projected.length - 1; i++) {
+      const [x1, y1] = projected[i];
+      const [x2, y2] = projected[i + 1];
+      area += x1 * y2 - x2 * y1;
+    }
+    // close ring
+    const [x1, y1] = projected[projected.length - 1];
+    const [x2, y2] = projected[0];
+    area += x1 * y2 - x2 * y1;
+
+    const areaM2 = Math.abs(area) / 2;
+    return areaM2 / 1_000_000; // km^2
   }
 
   function formatCenterLabel(features) {
@@ -155,14 +186,12 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
   function upsertPolygonDeleteMarker(polygonCoordinates) {
     const mapInstance = mapRef?.current;
     if (!mapInstance) return;
-    const topLeft = getPolygonTopLeft(polygonCoordinates);
-    if (!topLeft) return;
+    const center = getPolygonCenter(polygonCoordinates);
+    if (!center) return;
 
     removePolygonDeleteMarker();
     const button = document.createElement('button');
     button.type = 'button';
-    button.style.width = '22px';
-    button.style.height = '22px';
     button.style.borderRadius = '9999px';
     button.style.background = '#ffffff';
     button.style.border = '1px solid #d1d5db';
@@ -171,17 +200,30 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
     button.style.alignItems = 'center';
     button.style.justifyContent = 'center';
     button.style.cursor = 'pointer';
-    button.style.padding = '0';
-    button.setAttribute('aria-label', 'Delete polygon');
-    button.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6L18 18" stroke="#111827" stroke-width="2.4" stroke-linecap="round"/><path d="M18 6L6 18" stroke="#111827" stroke-width="2.4" stroke-linecap="round"/></svg>';
+    button.style.padding = '4px 10px';
+    button.style.fontSize = '11px';
+    button.style.fontWeight = '500';
+    button.style.color = '#111827';
+    button.style.whiteSpace = 'nowrap';
+    button.setAttribute('aria-label', 'Remove polygon');
+
+    button.innerHTML = `
+      <span style="display:flex;align-items:center;gap:6px;">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 6L18 18" stroke="#111827" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M18 6L6 18" stroke="#111827" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+        <span>Remove</span>
+      </span>
+    `;
     button.onclick = (event) => {
       event.preventDefault();
       event.stopPropagation();
       clearDrawPolygon();
     };
 
-    deleteMarkerRef.current = new mapboxgl.Marker({ element: button, anchor: 'bottom-right' })
-      .setLngLat(topLeft)
+    deleteMarkerRef.current = new mapboxgl.Marker({ element: button, anchor: 'bottom' })
+      .setLngLat(center)
       .addTo(mapInstance);
   }
 
@@ -225,6 +267,7 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
   const clearSelection = () => {
     setSelection(null);
     setPolygonCenterLabel('');
+    setPolygonAreaKm2(null);
     if (selectionMode === 'draw' || selectionMode === 'click') setShowSelectionBubble(true);
     removePolygonDeleteMarker();
     if (mapRef?.current && drawRef.current) {
@@ -342,7 +385,85 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
         if (!style?.sources) return;
         const draw = new MapboxDraw({
           displayControlsDefault: false,
-          controls: {}
+          controls: {},
+          styles: [
+            // Polygon fill - light green
+            {
+              id: 'plot-draw-polygon-fill',
+              type: 'fill',
+              filter: ['all', ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
+              paint: {
+                'fill-color': '#6FFFCA',
+                'fill-opacity': 0.12
+              }
+            },
+            // Polygon glow outline (soft outer stroke)
+            {
+              id: 'plot-draw-polygon-glow',
+              type: 'line',
+              filter: ['all', ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
+              paint: {
+                'line-color': '#6FFFCA',
+                'line-width': 12,
+                'line-opacity': 0.35,
+                'line-blur': 4
+              }
+            },
+            // Polygon outline - solid green line (sharp inner stroke)
+            {
+              id: 'plot-draw-polygon-outline',
+              type: 'line',
+              filter: ['all', ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
+              paint: {
+                'line-color': '#22c55e',
+                'line-width': 3
+              }
+            },
+            // Line strings (during drawing)
+            {
+              id: 'plot-draw-line',
+              type: 'line',
+              filter: ['all', ['==', '$type', 'LineString'], ['!=', 'mode', 'static']],
+              paint: {
+                'line-color': '#22c55e',
+                'line-width': 3
+              }
+            },
+            // Active vertices (corner nodes)
+            {
+              id: 'plot-draw-vertex-active',
+              type: 'circle',
+              filter: [
+                'all',
+                ['==', 'meta', 'vertex'],
+                ['==', '$type', 'Point'],
+                ['!=', 'mode', 'static']
+              ],
+              paint: {
+                'circle-radius': 4,
+                'circle-color': '#ffffff',
+                'circle-stroke-color': '#000000',
+                'circle-stroke-width': 4
+              }
+            },
+            // Midpoints (smaller handles)
+            {
+              id: 'plot-draw-midpoint',
+              type: 'circle',
+              filter: [
+                'all',
+                ['==', 'meta', 'midpoint'],
+                ['==', '$type', 'Point'],
+                ['!=', 'mode', 'static']
+              ],
+              paint: {
+                'circle-radius': 4,
+                'circle-color': '#ffffff',
+                'circle-stroke-color': '#22c55e',
+                'circle-stroke-width': 2
+              }
+            }
+          ]
         });
         mapInstance.addControl(draw, 'top-left');
         drawRef.current = draw;
@@ -445,6 +566,10 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
       }
       if (!cancelled) setPolygonCenterLabel('Location unavailable');
     };
+
+    // Compute approximate area immediately
+    const areaKm2 = getPolygonAreaKm2(selection.coordinates);
+    setPolygonAreaKm2(Number.isFinite(areaKm2) ? areaKm2 : null);
 
     lookupCenter();
     return () => {
@@ -769,6 +894,36 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
                   {selectionMode === 'click' && <Check className="w-4 h-4" />}
                   Click
                 </button>
+              </div>
+            )}
+
+            {hasPolygonSelection && (
+              <div
+                className={`rounded-2xl border px-3 py-2 text-xs ${
+                  isDark
+                    ? 'bg-gray-900/70 border-white/10 text-gray-200'
+                    : 'bg-white/95 border-gray-200 text-gray-700'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col">
+                    <span className="font-semibold">Selected area</span>
+                    {polygonCenterLabel && (
+                      <span className="text-[11px] opacity-80">
+                        Near {polygonCenterLabel}
+                      </span>
+                    )}
+                  </div>
+                  {polygonAreaKm2 != null && (
+                    <span className="text-[11px] font-medium">
+                      ~
+                      {polygonAreaKm2 >= 50
+                        ? Math.round(polygonAreaKm2).toLocaleString()
+                        : polygonAreaKm2.toFixed(1)}
+                      {' '}km²
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
