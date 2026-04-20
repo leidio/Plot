@@ -17,8 +17,25 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3001;
 
+/** Browser Origin has no trailing slash; FRONTEND_URL in Railway often does — normalize so CORS matches. */
+function buildAllowedOrigins() {
+  const raw = process.env.FRONTEND_URL || 'http://localhost:5173,http://localhost:5174';
+  return [
+    ...new Set(
+      raw
+        .split(',')
+        .map((s) => s.trim().replace(/\/+$/, ''))
+        .filter(Boolean)
+    )
+  ];
+}
+
+const allowedOrigins = buildAllowedOrigins();
+if (process.env.NODE_ENV === 'production') {
+  console.log('🌐 CORS allowed origins:', allowedOrigins.join(', ') || '(none — set FRONTEND_URL)');
+}
+
 // Initialize Socket.IO
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173,http://localhost:5174').split(',').map(s => s.trim());
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
@@ -100,6 +117,7 @@ const apiLimiter = rateLimit({
   message: { error: { message: 'Too many requests, please try again later' } },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS'
 });
 
 const aiLimiter = rateLimit({
@@ -114,10 +132,19 @@ const aiLimiter = rateLimit({
 app.use(helmet({
   contentSecurityPolicy: false // Allow Socket.IO connections
 }));
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true
-}));
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      console.warn('CORS blocked Origin (add to FRONTEND_URL):', origin);
+      return callback(null, false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  })
+);
 app.use(morgan('dev'));
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
