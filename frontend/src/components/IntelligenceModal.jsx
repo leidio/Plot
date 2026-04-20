@@ -3,15 +3,325 @@ import axios from 'axios';
 import mapboxgl from 'mapbox-gl';
 import MapboxDraw from '@mapbox/mapbox-gl-draw';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
-import { Search, Check, Paperclip, Send, Plus, ChevronUp } from 'lucide-react';
+import { lineString as turfLineString, buffer as turfBuffer, simplify as turfSimplify } from '@turf/turf';
+import { Search, Check, Paperclip, Send, Plus, ChevronUp, Paintbrush, X } from 'lucide-react';
+import { BRUSH_SELECTION_CONFIG, POLYGON_LOCK_ANIMATION } from './intelligenceMapConfig';
 
 const PLACEHOLDER = 'Ask Plot to analyze the map or generate movements';
 
-const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose, onCreateMovementFromAI }) => {
+const INTEL_BRUSH_STROKE_SOURCE = 'plot-intel-brush-stroke';
+const INTEL_BRUSH_STROKE_LAYER = 'plot-intel-brush-stroke-line';
+const INTEL_OVERLAY_SOURCE = 'plot-intel-overlay-polygon';
+const INTEL_OVERLAY_FILL = 'plot-intel-overlay-fill';
+const INTEL_OVERLAY_OUTLINE = 'plot-intel-overlay-outline';
+
+const EMPTY_FC = { type: 'FeatureCollection', features: [] };
+
+function findFirstSymbolLayerId(mapInstance) {
+  const style = mapInstance.getStyle();
+  if (!style?.layers) return undefined;
+  const layer = style.layers.find((l) => l.type === 'symbol');
+  return layer?.id;
+}
+
+function metersPerPixelAtLatitude(latitude, zoom) {
+  return (156543.03392 * Math.cos((latitude * Math.PI) / 180)) / Math.pow(2, zoom);
+}
+
+function distanceMeters(a, b) {
+  const [lng1, lat1] = a;
+  const [lng2, lat2] = b;
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const s1 = Math.sin(dLat / 2);
+  const s2 = Math.sin(dLng / 2);
+  const q = s1 * s1 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * s2 * s2;
+  return 2 * R * Math.atan2(Math.sqrt(q), Math.sqrt(1 - q));
+}
+
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function smoothstep01(t) {
+  const x = Math.max(0, Math.min(1, t));
+  return x * x * (3 - 2 * x);
+}
+
+/** Screen-space bounce: 0 → peak (negative “up”) → overshoot → 0. */
+function bounceTranslateY(t, cfg) {
+  const { peakPx, overshootPx } = cfg.translate;
+  const { rise, fall, settle } = cfg.phases;
+  const p1 = rise;
+  const p2 = rise + fall;
+  if (t <= 0 || t >= 1) return 0;
+  if (t < p1) {
+    return peakPx * smoothstep01(t / p1);
+  }
+  if (t < p2) {
+    const u = easeOutCubic((t - p1) / (p2 - p1 || 1e-6));
+    return peakPx + (overshootPx - peakPx) * u;
+  }
+  const u = easeOutCubic((t - p2) / (1 - p2 || 1e-6));
+  return overshootPx * (1 - u);
+}
+
+/**
+ * Mapbox Draw duplicates every style layer per GeoJSON source: `.cold` and `.hot`.
+ * Layer ids are e.g. `plot-draw-polygon-fill.cold`, not `plot-draw-polygon-fill`.
+ */
+function getPlotDrawPolygonLayerTriples(mapInstance) {
+  const fillBase = 'plot-draw-polygon-fill';
+  const outlineBase = 'plot-draw-polygon-outline';
+  const glowBase = 'plot-draw-polygon-glow';
+  const triples = [];
+  for (const suffix of ['.cold', '.hot']) {
+    const fillId = `${fillBase}${suffix}`;
+    if (mapInstance.getLayer?.(fillId)) {
+      triples.push({
+        fill: fillId,
+        outline: `${outlineBase}${suffix}`,
+        glow: `${glowBase}${suffix}`
+      });
+    }
+  }
+  if (triples.length === 0 && mapInstance.getLayer?.(fillBase)) {
+    triples.push({ fill: fillBase, outline: outlineBase, glow: glowBase });
+  }
+  return triples;
+}
+
+function runPolygonLockAnimation(mapInstance) {
+  const cfg = POLYGON_LOCK_ANIMATION;
+  if (!cfg.enabled || !mapInstance) return;
+
+  const layerTriples = getPlotDrawPolygonLayerTriples(mapInstance);
+  if (layerTriples.length === 0) return;
+
+  const sampleFill = layerTriples[0].fill;
+  const sampleOutline = layerTriples[0].outline;
+  const sampleGlow = layerTriples[0].glow;
+
+  let baseFillOp = 0.12;
+  let baseGlowOp = 0.35;
+  let baseOutlineW = cfg.outlineWidth.basePx;
+  let baseGlowW = 12;
+  let baseGlowBlur = 4;
+  try {
+    const f = mapInstance.getPaintProperty(sampleFill, 'fill-opacity');
+    const g = mapInstance.getPaintProperty(sampleGlow, 'line-opacity');
+    const w = mapInstance.getPaintProperty(sampleOutline, 'line-width');
+    const gw = mapInstance.getPaintProperty(sampleGlow, 'line-width');
+    const gb = mapInstance.getPaintProperty(sampleGlow, 'line-blur');
+    if (typeof f === 'number') baseFillOp = f;
+    if (typeof g === 'number') baseGlowOp = g;
+    if (typeof w === 'number') baseOutlineW = w;
+    if (typeof gw === 'number') baseGlowW = gw;
+    if (typeof gb === 'number') baseGlowBlur = gb;
+  } catch (_) {
+    return;
+  }
+
+  const anchor = cfg.translateAnchor || 'viewport';
+  try {
+    for (const { fill, outline, glow } of layerTriples) {
+      mapInstance.setPaintProperty(fill, 'fill-translate-anchor', anchor);
+      if (mapInstance.getLayer(outline)) {
+        mapInstance.setPaintProperty(outline, 'line-translate-anchor', anchor);
+      }
+      if (mapInstance.getLayer(glow)) {
+        mapInstance.setPaintProperty(glow, 'line-translate-anchor', anchor);
+      }
+    }
+  } catch (_) {}
+
+  const { basePx, peakPx } = cfg.outlineWidth;
+  const fillMin = cfg.fillOpacity.minMult;
+  const fillPeak = cfg.fillOpacity.peakMult;
+  const glowMin = cfg.glowOpacity.minMult;
+  const glowPeak = cfg.glowOpacity.peakMult;
+  const glowCfg = cfg.glowLine || {};
+  const peakGlowW = typeof glowCfg.peakWidthPx === 'number' ? glowCfg.peakWidthPx : 32;
+  const peakGlowBlur = typeof glowCfg.peakBlurPx === 'number' ? glowCfg.peakBlurPx : 18;
+  const echoDelay = typeof glowCfg.echoDelay === 'number' ? glowCfg.echoDelay : 0.12;
+  const echoStrength = typeof glowCfg.echoStrength === 'number' ? glowCfg.echoStrength : 0.5;
+  const echoSpan = typeof glowCfg.echoSpan === 'number' ? glowCfg.echoSpan : 0.5;
+
+  const start = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  let rafId = null;
+
+  function frame(now) {
+    const t = Math.min(1, (now - start) / cfg.durationMs);
+    const ty = bounceTranslateY(t, cfg);
+    const hullMain = Math.sin(Math.min(1, t / 0.4) * Math.PI);
+    const echoT = Math.max(0, t - echoDelay);
+    const hullEcho = echoStrength * Math.sin(Math.min(1, echoT / echoSpan) * Math.PI);
+    const glowHull = Math.min(1.25, hullMain + hullEcho);
+
+    const outlineW = basePx + (peakPx - basePx) * hullMain;
+    const fillMult = fillMin + (fillPeak - fillMin) * hullMain;
+    const glowMult = glowMin + (glowPeak - glowMin) * glowHull;
+    const glowW = baseGlowW + (peakGlowW - baseGlowW) * glowHull;
+    const glowBlur = baseGlowBlur + (peakGlowBlur - baseGlowBlur) * glowHull;
+
+    try {
+      for (const { fill, outline, glow } of layerTriples) {
+        mapInstance.setPaintProperty(fill, 'fill-translate', [0, ty]);
+        mapInstance.setPaintProperty(fill, 'fill-opacity', baseFillOp * fillMult);
+        if (mapInstance.getLayer(outline)) {
+          mapInstance.setPaintProperty(outline, 'line-translate', [0, ty]);
+          mapInstance.setPaintProperty(outline, 'line-width', outlineW);
+        }
+        if (mapInstance.getLayer(glow)) {
+          mapInstance.setPaintProperty(glow, 'line-translate', [0, ty]);
+          mapInstance.setPaintProperty(glow, 'line-width', glowW);
+          mapInstance.setPaintProperty(glow, 'line-blur', glowBlur);
+          mapInstance.setPaintProperty(glow, 'line-opacity', baseGlowOp * glowMult);
+        }
+      }
+    } catch (_) {
+      rafId = null;
+      return;
+    }
+
+    if (t < 1) {
+      rafId = requestAnimationFrame(frame);
+    } else {
+      try {
+        for (const { fill, outline, glow } of layerTriples) {
+          mapInstance.setPaintProperty(fill, 'fill-translate', [0, 0]);
+          mapInstance.setPaintProperty(fill, 'fill-opacity', baseFillOp);
+          if (mapInstance.getLayer(outline)) {
+            mapInstance.setPaintProperty(outline, 'line-translate', [0, 0]);
+            mapInstance.setPaintProperty(outline, 'line-width', baseOutlineW);
+          }
+          if (mapInstance.getLayer(glow)) {
+            mapInstance.setPaintProperty(glow, 'line-translate', [0, 0]);
+            mapInstance.setPaintProperty(glow, 'line-width', baseGlowW);
+            mapInstance.setPaintProperty(glow, 'line-blur', baseGlowBlur);
+            mapInstance.setPaintProperty(glow, 'line-opacity', baseGlowOp);
+          }
+        }
+      } catch (_) {}
+      rafId = null;
+    }
+  }
+
+  rafId = requestAnimationFrame(frame);
+  return () => {
+    if (rafId != null) cancelAnimationFrame(rafId);
+  };
+}
+
+function ensureIntelOverlayInfrastructure(mapInstance) {
+  if (!mapInstance.getSource(INTEL_OVERLAY_SOURCE)) {
+    mapInstance.addSource(INTEL_OVERLAY_SOURCE, { type: 'geojson', data: EMPTY_FC });
+  }
+  const beforeId = findFirstSymbolLayerId(mapInstance);
+  if (!mapInstance.getLayer(INTEL_OVERLAY_FILL)) {
+    mapInstance.addLayer(
+      {
+        id: INTEL_OVERLAY_FILL,
+        type: 'fill',
+        source: INTEL_OVERLAY_SOURCE,
+        paint: {
+          'fill-color': '#6FFFCA',
+          'fill-opacity': 0.14
+        }
+      },
+      beforeId
+    );
+  }
+  if (!mapInstance.getLayer(INTEL_OVERLAY_OUTLINE)) {
+    mapInstance.addLayer(
+      {
+        id: INTEL_OVERLAY_OUTLINE,
+        type: 'line',
+        source: INTEL_OVERLAY_SOURCE,
+        paint: {
+          'line-color': '#22c55e',
+          'line-width': 2
+        }
+      },
+      beforeId
+    );
+  }
+}
+
+function ensureBrushStrokeLayer(mapInstance, brushPx) {
+  if (!mapInstance.getSource(INTEL_BRUSH_STROKE_SOURCE)) {
+    mapInstance.addSource(INTEL_BRUSH_STROKE_SOURCE, { type: 'geojson', data: EMPTY_FC });
+  }
+  const beforeId = findFirstSymbolLayerId(mapInstance);
+  if (!mapInstance.getLayer(INTEL_BRUSH_STROKE_LAYER)) {
+    mapInstance.addLayer(
+      {
+        id: INTEL_BRUSH_STROKE_LAYER,
+        type: 'line',
+        source: INTEL_BRUSH_STROKE_SOURCE,
+        paint: {
+          'line-color': BRUSH_SELECTION_CONFIG.previewLineColor,
+          'line-width': Math.max(2, brushPx * 2),
+          'line-opacity': BRUSH_SELECTION_CONFIG.previewLineOpacity,
+          'line-blur': Math.max(0.5, brushPx * BRUSH_SELECTION_CONFIG.previewLineBlurRatio)
+        }
+      },
+      beforeId
+    );
+  } else {
+    mapInstance.setPaintProperty(INTEL_BRUSH_STROKE_LAYER, 'line-width', Math.max(2, brushPx * 2));
+    mapInstance.setPaintProperty(
+      INTEL_BRUSH_STROKE_LAYER,
+      'line-blur',
+      Math.max(0.5, brushPx * BRUSH_SELECTION_CONFIG.previewLineBlurRatio)
+    );
+  }
+}
+
+function setBrushStrokeGeoJSON(mapInstance, coordinates) {
+  const src = mapInstance.getSource(INTEL_BRUSH_STROKE_SOURCE);
+  if (!src) return;
+  if (!coordinates.length) {
+    src.setData(EMPTY_FC);
+    return;
+  }
+  if (coordinates.length === 1) {
+    src.setData(turfLineString([coordinates[0], coordinates[0]]));
+    return;
+  }
+  src.setData(turfLineString(coordinates));
+}
+
+/** Avoid ~0.0 km² for small selections; use m² when km² would round to 0 at one decimal. */
+function formatPolygonAreaForDisplay(areaKm2) {
+  if (areaKm2 == null || !Number.isFinite(areaKm2)) return null;
+  const kmOneDecimal = Number(areaKm2.toFixed(1));
+  const useSquareMeters = areaKm2 < 0.01 || (areaKm2 < 1 && kmOneDecimal === 0);
+  if (useSquareMeters) {
+    const m2 = Math.round(areaKm2 * 1_000_000);
+    const body = m2 < 1 ? '<1' : m2.toLocaleString();
+    return `~${body} m²`;
+  }
+  if (areaKm2 >= 50) {
+    return `~${Math.round(areaKm2).toLocaleString()} km²`;
+  }
+  return `~${areaKm2.toFixed(1)} km²`;
+}
+
+const IntelligenceModal = ({
+  mapRef,
+  mapReady,
+  apiCall,
+  isDark = false,
+  onClose,
+  onCreateMovementFromAI,
+  onIntelligenceLoadingChange
+}) => {
   const [locationQuery, setLocationQuery] = useState('');
   const [locationSuggestions, setLocationSuggestions] = useState([]);
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
-  const [selectionMode, setSelectionMode] = useState(null); // null | 'draw' | 'click'
+  const [selectionMode, setSelectionMode] = useState('draw'); // 'draw' | 'brush' | 'click'
   const [prompt, setPrompt] = useState('');
   const [selection, setSelection] = useState(null); // { type: 'Point'|'Polygon', coordinates }
   const [threads, setThreads] = useState([]);
@@ -25,11 +335,18 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
   const [polygonCenterLabel, setPolygonCenterLabel] = useState('');
   const [polygonAreaKm2, setPolygonAreaKm2] = useState(null);
   const drawRef = useRef(null);
+  const drawEventHandlersRef = useRef(null);
   const deleteMarkerRef = useRef(null);
   const clickHandlerRef = useRef(null);
   const suggestionsRef = useRef(null);
   const debounceRef = useRef(null);
   const promptInputRef = useRef(null);
+  const brushPaintingRef = useRef(false);
+  const brushPointsRef = useRef([]);
+  const [brushRadiusPx, setBrushRadiusPx] = useState(BRUSH_SELECTION_CONFIG.defaultBrushRadiusPx);
+  const [mapZoom, setMapZoom] = useState(0);
+  /** Bumps when Draw is torn down while still in draw mode (e.g. Start over) so the draw effect re-mounts the control. */
+  const [drawRemountEpoch, setDrawRemountEpoch] = useState(0);
 
   const hasSelection = selection && selection.coordinates;
   const hasPolygonSelection = selection?.type === 'Polygon';
@@ -38,11 +355,17 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   function removePolygonDeleteMarker() {
-    if (!deleteMarkerRef.current) return;
     try {
-      deleteMarkerRef.current.remove();
+      deleteMarkerRef.current?.remove();
     } catch (_) {}
     deleteMarkerRef.current = null;
+    const container = mapRef?.current?.getContainer?.();
+    if (container) {
+      container.querySelectorAll('[data-plot-intel-polygon-remove="1"]').forEach((el) => {
+        const markerEl = el.closest('.mapboxgl-marker');
+        markerEl?.remove();
+      });
+    }
   }
 
   function getPolygonCenter(coordinates) {
@@ -151,20 +474,25 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
   function clearDrawPolygon() {
     try {
       const draw = drawRef.current;
-      if (!draw) return;
-      const features = draw.getAll()?.features || [];
-      const polygonIds = features
-        .filter((feature) => feature.geometry?.type === 'Polygon')
-        .map((feature) => feature.id)
-        .filter(Boolean);
-      if (polygonIds.length > 0) {
-        draw.delete(polygonIds);
+      if (draw) {
+        const features = draw.getAll()?.features || [];
+        const polygonIds = features
+          .filter((feature) => feature.geometry?.type === 'Polygon')
+          .map((feature) => feature.id)
+          .filter(Boolean);
+        if (polygonIds.length > 0) {
+          draw.delete(polygonIds);
+        }
+        draw.changeMode('draw_polygon');
       }
-      draw.changeMode('draw_polygon');
     } catch (_) {}
     setSelection(null);
     setPolygonCenterLabel('');
+    setPolygonAreaKm2(null);
     removePolygonDeleteMarker();
+    try {
+      mapRef?.current?.getSource(INTEL_OVERLAY_SOURCE)?.setData(EMPTY_FC);
+    } catch (_) {}
   }
 
   function forcePolygonDrawMode() {
@@ -206,6 +534,7 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
     button.style.color = '#111827';
     button.style.whiteSpace = 'nowrap';
     button.setAttribute('aria-label', 'Remove polygon');
+    button.setAttribute('data-plot-intel-polygon-remove', '1');
 
     button.innerHTML = `
       <span style="display:flex;align-items:center;gap:6px;">
@@ -268,13 +597,32 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
     setSelection(null);
     setPolygonCenterLabel('');
     setPolygonAreaKm2(null);
-    if (selectionMode === 'draw' || selectionMode === 'click') setShowSelectionBubble(true);
+    if (selectionMode === 'draw' || selectionMode === 'click' || selectionMode === 'brush') {
+      setShowSelectionBubble(true);
+    }
     removePolygonDeleteMarker();
+    brushPaintingRef.current = false;
+    brushPointsRef.current = [];
+    if (mapRef?.current) {
+      const map = mapRef.current;
+      try {
+        map.getSource(INTEL_BRUSH_STROKE_SOURCE)?.setData(EMPTY_FC);
+      } catch (_) {}
+      try {
+        map.getSource(INTEL_OVERLAY_SOURCE)?.setData(EMPTY_FC);
+      } catch (_) {}
+      try {
+        map.dragPan?.enable();
+      } catch (_) {}
+    }
     if (mapRef?.current && drawRef.current) {
       try {
         mapRef.current.removeControl(drawRef.current);
       } catch (_) {}
       drawRef.current = null;
+      if (selectionMode === 'draw') {
+        setDrawRemountEpoch((n) => n + 1);
+      }
     }
     if (clickHandlerRef.current && mapRef?.current) {
       mapRef.current.getCanvas().style.cursor = '';
@@ -337,6 +685,22 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
     if (Array.isArray(response.movements) && response.movements[0]?.name) return response.movements[0].name;
     return 'Response saved';
   }
+
+  useEffect(() => {
+    onIntelligenceLoadingChange?.(loading);
+  }, [loading, onIntelligenceLoadingChange]);
+
+  useEffect(() => {
+    return () => {
+      onIntelligenceLoadingChange?.(false);
+    };
+  }, [onIntelligenceLoadingChange]);
+
+  useEffect(() => {
+    if (selection?.type !== 'Polygon') {
+      removePolygonDeleteMarker();
+    }
+  }, [selection]);
 
   useEffect(() => {
     let cancelled = false;
@@ -429,7 +793,7 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
                 'line-width': 3
               }
             },
-            // Active vertices (corner nodes)
+            // Active vertices: keep a bold 4px stroke; smaller fill (radius) keeps overall node compact.
             {
               id: 'plot-draw-vertex-active',
               type: 'circle',
@@ -440,13 +804,13 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
                 ['!=', 'mode', 'static']
               ],
               paint: {
-                'circle-radius': 4,
+                'circle-radius': 3,
                 'circle-color': '#ffffff',
                 'circle-stroke-color': '#000000',
                 'circle-stroke-width': 4
               }
             },
-            // Midpoints (smaller handles)
+            // Midpoints (edge handles; smaller than corners)
             {
               id: 'plot-draw-midpoint',
               type: 'circle',
@@ -457,10 +821,10 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
                 ['!=', 'mode', 'static']
               ],
               paint: {
-                'circle-radius': 4,
+                'circle-radius': 3,
                 'circle-color': '#ffffff',
                 'circle-stroke-color': '#22c55e',
-                'circle-stroke-width': 2
+                'circle-stroke-width': 1.5
               }
             }
           ]
@@ -482,13 +846,45 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
             }
           } catch (_) {}
         };
-        mapInstance.on('draw.create', onUpdate);
+        const onCreate = () => {
+          onUpdate();
+          // Closing a polygon leaves Draw in simple_select with the feature selected, which shows
+          // corner vertices. Deselect so only the outline/fill remains (user can click to edit again).
+          try {
+            draw.changeMode('simple_select', { featureIds: [] });
+          } catch (_) {}
+          // Run after Draw commits the closed polygon to the style, or the bounce won’t show.
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => runPolygonLockAnimation(mapInstance));
+          });
+        };
+        mapInstance.on('draw.create', onCreate);
         mapInstance.on('draw.update', onUpdate);
         mapInstance.on('draw.delete', onUpdate);
+        drawEventHandlersRef.current = { map: mapInstance, onCreate, onUpdate };
       } catch (err) {
         console.error('Intelligence Draw init:', err);
       }
     };
+
+    function tearDownDraw() {
+      const h = drawEventHandlersRef.current;
+      if (h?.map && h.onCreate) {
+        try {
+          h.map.off('draw.create', h.onCreate);
+          h.map.off('draw.update', h.onUpdate);
+          h.map.off('draw.delete', h.onUpdate);
+        } catch (_) {}
+      }
+      drawEventHandlersRef.current = null;
+      if (drawRef.current) {
+        try {
+          mapInstance.removeControl(drawRef.current);
+        } catch (_) {}
+        drawRef.current = null;
+      }
+      removePolygonDeleteMarker();
+    }
 
     try {
       const style = mapInstance.getStyle?.();
@@ -499,31 +895,17 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
         const t = setTimeout(addDraw, 500);
         return () => {
           clearTimeout(t);
-          if (drawRef.current) {
-            try {
-              mapInstance.removeControl(drawRef.current);
-            } catch (_) {}
-            drawRef.current = null;
-            removePolygonDeleteMarker();
-          }
+          tearDownDraw();
         };
       }
     } catch (_) {}
-    return () => {
-      if (drawRef.current) {
-        try {
-          mapInstance.removeControl(drawRef.current);
-        } catch (_) {}
-        drawRef.current = null;
-      }
-      removePolygonDeleteMarker();
-    };
-  }, [mapReady, selectionMode, mapRef]);
+    return tearDownDraw;
+  }, [mapReady, selectionMode, mapRef, drawRemountEpoch]);
 
   useEffect(() => {
     if (selectionMode !== 'draw' || !showSelectionBubble || !drawRef.current) return;
     forcePolygonDrawMode();
-  }, [selectionMode, showSelectionBubble]);
+  }, [selectionMode, showSelectionBubble, drawRemountEpoch]);
 
   useEffect(() => {
     if (!hasPolygonSelection || !selection?.coordinates) {
@@ -607,8 +989,146 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
   }, [mapReady, selectionMode, mapRef, selection]);
 
   useEffect(() => {
+    if (!mapReady || !mapRef?.current) return undefined;
+    const map = mapRef.current;
+    const syncZoom = () => setMapZoom(map.getZoom());
+    syncZoom();
+    map.on('zoom', syncZoom);
+    map.on('zoomend', syncZoom);
     return () => {
-      clearSelection();
+      map.off('zoom', syncZoom);
+      map.off('zoomend', syncZoom);
+    };
+  }, [mapReady, mapRef]);
+
+  useEffect(() => {
+    const map = mapRef?.current;
+    if (!mapReady || !map) return;
+    try {
+      if (!map.getStyle?.()?.sources) return;
+      ensureIntelOverlayInfrastructure(map);
+      const showOverlay = hasPolygonSelection && selectionMode !== 'draw';
+      if (showOverlay && selection?.coordinates) {
+        map.getSource(INTEL_OVERLAY_SOURCE).setData({
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'Polygon', coordinates: selection.coordinates }
+        });
+      } else {
+        map.getSource(INTEL_OVERLAY_SOURCE).setData(EMPTY_FC);
+      }
+    } catch (_) {}
+  }, [mapReady, mapRef, hasPolygonSelection, selectionMode, selection]);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef?.current || selectionMode !== 'brush') return undefined;
+    const map = mapRef.current;
+    const minZ = BRUSH_SELECTION_CONFIG.minZoom;
+    if (!map.getStyle?.()?.sources) return undefined;
+
+    ensureIntelOverlayInfrastructure(map);
+    ensureBrushStrokeLayer(map, brushRadiusPx);
+
+    function finalizeBrushStroke() {
+      if (!brushPaintingRef.current) return;
+      brushPaintingRef.current = false;
+      try {
+        map.dragPan.enable();
+      } catch (_) {}
+
+      const pts = brushPointsRef.current;
+      brushPointsRef.current = [];
+      setBrushStrokeGeoJSON(map, []);
+
+      if (pts.length < 2) return;
+
+      const line = turfLineString(pts);
+      const z = map.getZoom();
+      const lat = pts[0][1];
+      const mPx = metersPerPixelAtLatitude(lat, z);
+      const radiusMeters = brushRadiusPx * mPx;
+
+      let poly;
+      try {
+        const buf = turfBuffer(line, radiusMeters, { units: 'meters', steps: 16 });
+        poly = turfSimplify(buf, {
+          tolerance: BRUSH_SELECTION_CONFIG.simplifyToleranceDeg,
+          highQuality: true
+        });
+      } catch (err) {
+        console.warn('Brush finalize:', err);
+        return;
+      }
+      if (!poly?.geometry || poly.geometry.type !== 'Polygon') return;
+
+      setSelection({ type: 'Polygon', coordinates: poly.geometry.coordinates });
+      upsertPolygonDeleteMarker(poly.geometry.coordinates);
+      setShowSelectionBubble(false);
+    }
+
+    function appendPoint(lngLat) {
+      const pts = brushPointsRef.current;
+      const p = [lngLat.lng, lngLat.lat];
+      if (pts.length === 0) {
+        pts.push(p);
+        return;
+      }
+      const last = pts[pts.length - 1];
+      if (distanceMeters(last, p) < BRUSH_SELECTION_CONFIG.strokeSampleMinMeters) return;
+      pts.push(p);
+    }
+
+    function onMouseDown(e) {
+      if (map.getZoom() < minZ) return;
+      if (e.originalEvent?.button !== 0) return;
+      if (e.originalEvent?.ctrlKey || e.originalEvent?.metaKey) return;
+      brushPaintingRef.current = true;
+      brushPointsRef.current = [[e.lngLat.lng, e.lngLat.lat]];
+      try {
+        map.dragPan.disable();
+      } catch (_) {}
+      e.preventDefault();
+      setBrushStrokeGeoJSON(map, brushPointsRef.current);
+    }
+
+    function onMouseMove(e) {
+      if (!brushPaintingRef.current) return;
+      appendPoint(e.lngLat);
+      setBrushStrokeGeoJSON(map, brushPointsRef.current);
+    }
+
+    function onMouseUp() {
+      finalizeBrushStroke();
+    }
+
+    map.on('mousedown', onMouseDown);
+    map.on('mousemove', onMouseMove);
+    map.on('mouseup', onMouseUp);
+    document.addEventListener('mouseup', onMouseUp);
+    const canvas = map.getCanvas();
+    if (canvas) canvas.style.cursor = 'crosshair';
+
+    return () => {
+      map.off('mousedown', onMouseDown);
+      map.off('mousemove', onMouseMove);
+      map.off('mouseup', onMouseUp);
+      document.removeEventListener('mouseup', onMouseUp);
+      try {
+        map.dragPan.enable();
+      } catch (_) {}
+      if (canvas) canvas.style.cursor = '';
+      brushPaintingRef.current = false;
+      brushPointsRef.current = [];
+      setBrushStrokeGeoJSON(map, []);
+    };
+  }, [mapReady, selectionMode, mapRef, brushRadiusPx]);
+
+  useEffect(() => {
+    return () => {
+      const m = mapRef?.current;
+      try {
+        m?.dragPan?.enable();
+      } catch (_) {}
     };
   }, []);
 
@@ -650,25 +1170,48 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
 
   if (showSelectionBubble) {
     const isDraw = selectionMode === 'draw';
+    const isBrush = selectionMode === 'brush';
+    const isClick = selectionMode === 'click';
+    const liveZoom = mapRef?.current?.getZoom?.() ?? mapZoom;
+    const brushZoomOk = liveZoom >= BRUSH_SELECTION_CONFIG.minZoom;
     return (
       <div
         className={`fixed left-1/2 -translate-x-1/2 top-6 z-[101] rounded-xl border-2 shadow-xl p-4 flex flex-col items-center gap-3 ${
           isDark ? 'bg-gray-800/95 border-gray-600' : 'bg-white/95 border-gray-300'
         }`}
-        style={{ minWidth: 280 }}
+        style={{ minWidth: isBrush ? 320 : 280 }}
         role="dialog"
-        aria-label={isDraw ? 'Draw area instructions' : 'Click location instructions'}
+        aria-label={
+          isDraw ? 'Draw area instructions' : isBrush ? 'Paint area instructions' : 'Click location instructions'
+        }
       >
         <p className={`text-sm text-center leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-          {isDraw
-            ? 'Click on the map to add polygon points; double-click to close the polygon.'
-            : 'Click once on the map to set a location for analysis.'}
+          {isDraw &&
+            'Click on the map to add polygon points; double-click to close the polygon.'}
+          {isBrush &&
+            (brushZoomOk
+              ? 'Click and drag on the map to paint a highlight. Release the mouse to lock the area (snapped outline). Use the slider to change brush width.'
+              : `Zoom in closer (level ${BRUSH_SELECTION_CONFIG.minZoom}+, city-block scale) to use the paintbrush.`)}
+          {isClick && 'Click once on the map to set a location for analysis.'}
         </p>
-        {isDraw && (
+        {isBrush && brushZoomOk && (
+          <label className={`w-full flex flex-col gap-1 text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            <span className="font-medium">Brush size</span>
+            <input
+              type="range"
+              min={BRUSH_SELECTION_CONFIG.minBrushRadiusPx}
+              max={BRUSH_SELECTION_CONFIG.maxBrushRadiusPx}
+              value={brushRadiusPx}
+              onChange={(e) => setBrushRadiusPx(Number(e.target.value))}
+              className="w-full"
+            />
+          </label>
+        )}
+        {(isDraw || (isBrush && brushZoomOk)) && (
           <div className="w-full flex items-center gap-2">
             <button
               type="button"
-              onClick={clearDrawPolygon}
+              onClick={isDraw ? clearDrawPolygon : clearSelection}
               className={`flex-1 py-2 rounded-lg text-sm font-medium ${
                 isDark ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
               }`}
@@ -865,7 +1408,7 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
             )}
 
             {showSelectionSetup && (
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => { setSelectionMode('draw'); clearSelection(); setShowSelectionBubble(true); }}
@@ -879,6 +1422,34 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
                 >
                   {selectionMode === 'draw' && <Check className="w-4 h-4" />}
                   Draw
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSelectionMode('brush'); clearSelection(); setShowSelectionBubble(true); }}
+                  disabled={
+                    Boolean(
+                      mapReady &&
+                        mapRef?.current &&
+                        mapRef.current.getZoom() < BRUSH_SELECTION_CONFIG.minZoom
+                    )
+                  }
+                  title={
+                    mapRef?.current &&
+                    mapRef.current.getZoom() < BRUSH_SELECTION_CONFIG.minZoom
+                      ? `Zoom to level ${BRUSH_SELECTION_CONFIG.minZoom} or higher (city-block scale) to paint an area`
+                      : 'Paint a highlighted area; release to lock the shape'
+                  }
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${
+                    selectionMode === 'brush'
+                      ? 'bg-emerald-500 text-white shadow-sm'
+                      : isDark
+                      ? 'bg-gray-800/80 text-gray-300 hover:bg-gray-700'
+                      : 'bg-white/70 text-gray-700 hover:bg-white'
+                  }`}
+                >
+                  {selectionMode === 'brush' && <Check className="w-4 h-4" />}
+                  <Paintbrush className="w-4 h-4 opacity-90" />
+                  Paint
                 </button>
                 <button
                   type="button"
@@ -916,11 +1487,7 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
                   </div>
                   {polygonAreaKm2 != null && (
                     <span className="text-[11px] font-medium">
-                      ~
-                      {polygonAreaKm2 >= 50
-                        ? Math.round(polygonAreaKm2).toLocaleString()
-                        : polygonAreaKm2.toFixed(1)}
-                      {' '}km²
+                      {formatPolygonAreaForDisplay(polygonAreaKm2)}
                     </span>
                   )}
                 </div>
@@ -994,6 +1561,11 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
                 Draw an area on the map to analyze.
               </p>
             )}
+            {showSelectionSetup && selectionMode === 'brush' && (
+              <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                Paintbrush works at city-block scale (zoom {BRUSH_SELECTION_CONFIG.minZoom}+). Release the mouse to snap your stroke to a clean outline—the result is a normal area selection for Intelligence.
+              </p>
+            )}
             {showSelectionSetup && selectionMode === 'click' && (
               <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                 Click on the map to set a location for analysis.
@@ -1003,8 +1575,21 @@ const IntelligenceModal = ({ mapRef, mapReady, apiCall, isDark = false, onClose,
         )}
 
         {error && (
-          <div className={`mt-1 px-3 py-2 rounded-lg text-sm ${isDark ? 'bg-red-900/30 text-red-300' : 'bg-red-50 text-red-700'}`}>
-            {error}
+          <div
+            className={`mt-1 px-3 py-2 rounded-lg text-sm flex items-start justify-between gap-2 ${
+              isDark ? 'bg-red-900/30 text-red-300' : 'bg-red-50 text-red-700'
+            }`}
+            role="alert"
+          >
+            <span className="min-w-0 flex-1">{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className={`shrink-0 rounded-md p-1 -m-1 -mr-0.5 ${isDark ? 'hover:bg-red-800/50 text-red-200' : 'hover:bg-red-100 text-red-800'}`}
+              aria-label="Dismiss error"
+            >
+              <X className="w-4 h-4" strokeWidth={2.2} />
+            </button>
           </div>
         )}
 

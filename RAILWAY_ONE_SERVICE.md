@@ -47,3 +47,22 @@ After deploy, open:
 - Run backend: `cd backend && npm run dev`
 - Run frontend: `cd frontend && npm run dev`
 - Backend does not serve the frontend locally unless you’ve run `npm run build` in the frontend; use the Vite dev server as usual.
+
+---
+
+## 6. Optional: two Railway services (separate frontend + backend)
+
+If the browser opens **`https://plot-frontend.up.railway.app`** and the API is **`https://plot-backend.up.railway.app`**:
+
+1. **Frontend service → Variables** (must be present **before** `npm run build`, because Vite inlines `VITE_*` at build time):
+
+   | Key | Example value |
+   |-----|----------------|
+   | `VITE_API_URL` | `https://plot-backend.up.railway.app/api` |
+   | `VITE_MAPBOX_ACCESS_TOKEN` | (your token) |
+
+2. **Backend (`plot-backend`) service → Variables:** set **`FRONTEND_URL`** to the **exact** browser origin of your UI (no path), e.g. `https://plot-prod.up.railway.app`. This is required for **CORS** on `/api/auth/register`. If it’s missing or wrong, sign-up fails or behaves like a network error. Add `http://plot-prod.up.railway.app` too if people still open the `http` link (comma-separated).
+
+After deploying the backend, auth cookies use **`SameSite=None; Secure`** when the request comes from a different Railway hostname than the API (e.g. `plot-prod` → `plot-backend-prod`), so sessions work across your two services.
+
+If you skip `VITE_API_URL` on a standalone frontend build, the app used to fall back to `http://localhost:3001/api` and sign-up would fail in production. The app now defaults to **same-origin** `/api` in production when `VITE_API_URL` is unset (correct for **one** service only). For two services, **`VITE_API_URL` is required**.

@@ -26,7 +26,7 @@ const CreateModal = ({ type, movement, initialCoordinates, initialMovementDraft,
   const [locationSuggestions, setLocationSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
-  const [locationMode, setLocationMode] = useState('search'); // 'search' | 'draw'
+  const [locationMode, setLocationMode] = useState('draw'); // 'search' | 'draw'
   const [drawnBoundary, setDrawnBoundary] = useState(null);   // GeoJSON polygon or null
   const [boundaryCity, setBoundaryCity] = useState('');
   const [boundaryState, setBoundaryState] = useState('');
@@ -514,7 +514,11 @@ const CreateModal = ({ type, movement, initialCoordinates, initialMovementDraft,
     } catch (err) {
       console.error(`Error creating ${type}:`, err);
       if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-        setError('Cannot connect to server. Make sure the backend is running on port 3001.');
+        setError(
+          import.meta.env.DEV
+            ? 'Cannot reach the API. Start the backend (e.g. port 3001) or set VITE_API_URL in frontend/.env.'
+            : 'Cannot reach the API. For Railway: set VITE_API_URL on the service that builds the frontend (see RAILWAY_ONE_SERVICE.md), or open the app URL that serves both UI and /api.'
+        );
       } else if (err.response) {
         const errorMessage = err.response.data?.error?.message ||
           err.response.data?.message ||

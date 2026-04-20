@@ -16,26 +16,45 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Helper function to set auth cookie
-const setAuthCookie = (res, token) => {
+/** plot-prod + plot-backend are different hosts — credentialed XHR needs SameSite=None; Secure. */
+function isCrossSiteHttpsBrowserRequest(req) {
+  const origin = req.headers.origin;
+  const host = req.get('host');
+  if (!origin || !host) return false;
+  try {
+    const o = new URL(origin);
+    const apiHost = host.split(':')[0];
+    return o.hostname !== apiHost && o.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function authCookieSetOptions(req) {
+  const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+  const base = { httpOnly: true, path: '/', maxAge };
+  if (isCrossSiteHttpsBrowserRequest(req)) {
+    return { ...base, sameSite: 'none', secure: true };
+  }
   const isProduction = process.env.NODE_ENV === 'production';
-  res.cookie('authToken', token, {
-    httpOnly: true,
-    secure: isProduction, // Only send over HTTPS in production
-    sameSite: 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    path: '/'
-  });
+  return { ...base, sameSite: 'lax', secure: isProduction };
+}
+
+function authCookieClearOptions(req) {
+  const base = { httpOnly: true, path: '/' };
+  if (isCrossSiteHttpsBrowserRequest(req)) {
+    return { ...base, sameSite: 'none', secure: true };
+  }
+  const isProduction = process.env.NODE_ENV === 'production';
+  return { ...base, sameSite: 'lax', secure: isProduction };
+}
+
+const setAuthCookie = (req, res, token) => {
+  res.cookie('authToken', token, authCookieSetOptions(req));
 };
 
-// Helper function to clear auth cookie
-const clearAuthCookie = (res) => {
-  res.clearCookie('authToken', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/'
-  });
+const clearAuthCookie = (req, res) => {
+  res.clearCookie('authToken', authCookieClearOptions(req));
 };
 
 // Register new user
@@ -77,7 +96,7 @@ router.post('/register', authLimiter, validateRegister, async (req, res) => {
     );
 
     // Set httpOnly cookie
-    setAuthCookie(res, token);
+    setAuthCookie(req, res, token);
 
     res.status(201).json({ user });
   } catch (error) {
@@ -129,7 +148,7 @@ router.post('/login', authLimiter, validateLogin, async (req, res) => {
     );
 
     // Set httpOnly cookie
-    setAuthCookie(res, token);
+    setAuthCookie(req, res, token);
 
     const { passwordHash, ...userData } = user;
 
@@ -264,7 +283,7 @@ router.put('/me/password', validatePasswordUpdate, async (req, res) => {
 
 // Logout
 router.post('/logout', (req, res) => {
-  clearAuthCookie(res);
+  clearAuthCookie(req, res);
   res.json({ message: 'Logged out successfully' });
 });
 
@@ -284,7 +303,7 @@ router.delete('/me', async (req, res) => {
     });
 
     // Clear auth cookie
-    clearAuthCookie(res);
+    clearAuthCookie(req, res);
 
     res.json({ message: 'Account deleted successfully' });
   } catch (error) {

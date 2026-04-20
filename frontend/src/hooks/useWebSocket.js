@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-
-const SOCKET_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001';
+import { getSocketBaseUrl } from '../apiConfig';
 
 export const useWebSocket = (token, enabled = true) => {
   const socketRef = useRef(null);
@@ -12,8 +11,10 @@ export const useWebSocket = (token, enabled = true) => {
   useEffect(() => {
     if (!enabled) return;
 
+    const socketUrl = getSocketBaseUrl();
+
     // Initialize socket connection
-    socketRef.current = io(SOCKET_URL, {
+    socketRef.current = io(socketUrl, {
       auth: {
         token: token || null
       },

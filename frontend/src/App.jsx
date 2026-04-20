@@ -15,18 +15,16 @@ import MovementPreviewModal from './components/MovementPreviewModal';
 import IntelligenceModal from './components/IntelligenceModal';
 import Header from './components/Header';
 import axios from 'axios';
+import { getApiBaseUrl } from './apiConfig';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
-
-// API configuration
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 // Helper function to make authenticated API calls
 // Cookies are automatically sent with requests when credentials: 'include' is set
 const apiCall = async (method, endpoint, data = null) => {
   const config = {
     method,
-    url: `${API_BASE_URL}${endpoint}`,
+    url: `${getApiBaseUrl()}${endpoint}`,
     headers: {
       'Content-Type': 'application/json'
     },
@@ -36,18 +34,56 @@ const apiCall = async (method, endpoint, data = null) => {
   return axios(config);
 };
 
+/**
+ * Vector tiles (incl. 3D building extrusions) load for the current view frustum.
+ * Rotating or pitching changes which tiles are visible; a larger cache keeps recently
+ * viewed tiles in memory so buildings are less likely to pop out/in. Tradeoff: RAM.
+ * @see https://docs.mapbox.com/mapbox-gl-js/api/map/#map-parameters
+ */
+const MAP_MAX_TILE_CACHE_TILES = 384;
+
+/** Minimum time the Intelligence map sweep stays on screen (ms). Keeps it visible for design even when the POST returns instantly; tune down for production. */
+const INTELLIGENCE_SWEEP_MIN_MS = 1400;
+
 /** Set true to show the land-cover map toggle again (overlay plumbing stays in place). */
 const SHOW_LAND_COVER_TOGGLE = false;
+
+/** Michigan block groups: tree canopy % from `mi_geojson/mi_tes.geojson` (symlink under `public/overlays/`). */
+const SHOW_MI_CANOPY_TOGGLE = true;
 
 /** Stable IDs for the optional preprocessed land-cover overlay (GeoJSON). */
 const LAND_COVER_SOURCE_ID = 'plot-land-cover';
 const LAND_COVER_FILL_LAYER_ID = 'plot-land-cover-fill';
 const LAND_COVER_LINE_LAYER_ID = 'plot-land-cover-line';
 
-function landCoverSampleUrl() {
+/** Stable IDs for Michigan canopy (same GeoJSON as Tree Equity export; paints `treecanopy` 0–1). */
+const MI_CANOPY_SOURCE_ID = 'plot-mi-canopy';
+const MI_CANOPY_FILL_LAYER_ID = 'plot-mi-canopy-fill';
+const MI_CANOPY_LINE_LAYER_ID = 'plot-mi-canopy-line';
+
+function overlayPublicUrl(filename) {
   const base = import.meta.env.BASE_URL || '/';
   const normalized = base.endsWith('/') ? base : `${base}/`;
-  return `${normalized}overlays/land-cover-sample.geojson`;
+  return `${normalized}overlays/${filename}`;
+}
+
+function landCoverSampleUrl() {
+  return overlayPublicUrl('land-cover-sample.geojson');
+}
+
+function miBlockgroupsGeojsonUrl() {
+  return overlayPublicUrl('mi_tes.geojson');
+}
+
+function mapControlButtonCount() {
+  return 1 + (SHOW_LAND_COVER_TOGGLE ? 1 : 0) + (SHOW_MI_CANOPY_TOGGLE ? 1 : 0);
+}
+
+function intelligenceBackButtonTopClass() {
+  const n = mapControlButtonCount();
+  if (n >= 3) return 'top-[8.5rem]';
+  if (n === 2) return 'top-[5.75rem]';
+  return 'top-12';
 }
 
 function findFirstSymbolLayerId(mapInstance) {
@@ -127,6 +163,73 @@ function syncLandCoverOverlay(mapInstance, visible) {
   }
 }
 
+function syncMiCanopyOverlay(mapInstance, visible) {
+  if (!mapInstance?.getStyle?.()?.layers) return;
+
+  const visibility = visible ? 'visible' : 'none';
+
+  try {
+    if (!mapInstance.getSource(MI_CANOPY_SOURCE_ID)) {
+      mapInstance.addSource(MI_CANOPY_SOURCE_ID, {
+        type: 'geojson',
+        data: miBlockgroupsGeojsonUrl()
+      });
+    }
+
+    const beforeId = findFirstSymbolLayerId(mapInstance);
+
+    if (!mapInstance.getLayer(MI_CANOPY_FILL_LAYER_ID)) {
+      mapInstance.addLayer(
+        {
+          id: MI_CANOPY_FILL_LAYER_ID,
+          type: 'fill',
+          source: MI_CANOPY_SOURCE_ID,
+          paint: {
+            'fill-color': [
+              'interpolate',
+              ['linear'],
+              ['coalesce', ['get', 'treecanopy'], 0],
+              0,
+              '#e8e0d4',
+              0.25,
+              '#c8d6a6',
+              0.5,
+              '#6bae4a',
+              0.75,
+              '#2e7d32',
+              1,
+              '#1b4d1e'
+            ],
+            'fill-opacity': 0.52
+          }
+        },
+        beforeId
+      );
+    }
+
+    if (!mapInstance.getLayer(MI_CANOPY_LINE_LAYER_ID)) {
+      mapInstance.addLayer(
+        {
+          id: MI_CANOPY_LINE_LAYER_ID,
+          type: 'line',
+          source: MI_CANOPY_SOURCE_ID,
+          paint: {
+            'line-color': '#1e293b',
+            'line-opacity': 0.18,
+            'line-width': 0.5
+          }
+        },
+        beforeId
+      );
+    }
+
+    mapInstance.setLayoutProperty(MI_CANOPY_FILL_LAYER_ID, 'visibility', visibility);
+    mapInstance.setLayoutProperty(MI_CANOPY_LINE_LAYER_ID, 'visibility', visibility);
+  } catch (err) {
+    console.warn('[Plot] MI canopy overlay sync failed:', err);
+  }
+}
+
 const PlotApp = () => {
   const mapContainer = useRef(null);
   const map = useRef(null);
@@ -167,9 +270,14 @@ const PlotApp = () => {
   const [previewMovement, setPreviewMovement] = useState(null);
   const [returnToMovement, setReturnToMovement] = useState(null);
   const [showIntelligenceLayer, setShowIntelligenceLayer] = useState(false);
+  const [intelligenceMapLoading, setIntelligenceMapLoading] = useState(false);
+  const [intelligenceSweepVisible, setIntelligenceSweepVisible] = useState(false);
+  const intelligenceSweepStartRef = useRef(0);
   const [is3DMode, setIs3DMode] = useState(false);
   const [showLandCoverOverlay, setShowLandCoverOverlay] = useState(false);
   const showLandCoverOverlayRef = useRef(false);
+  const [showMiCanopyOverlay, setShowMiCanopyOverlay] = useState(false);
+  const showMiCanopyOverlayRef = useRef(false);
 
   // WebSocket setup - get token from cookies via API call
   const [wsToken, setWsToken] = useState(null);
@@ -208,6 +316,10 @@ const PlotApp = () => {
   useEffect(() => {
     showLandCoverOverlayRef.current = showLandCoverOverlay;
   }, [showLandCoverOverlay]);
+
+  useEffect(() => {
+    showMiCanopyOverlayRef.current = showMiCanopyOverlay;
+  }, [showMiCanopyOverlay]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -262,7 +374,8 @@ const PlotApp = () => {
       container,
       style: initialStyle,
       center: [-90.0715, 29.9511], // Default to New Orleans
-      zoom: 12
+      zoom: 12,
+      maxTileCacheSize: MAP_MAX_TILE_CACHE_TILES
     });
 
     // Resize after layout so Mapbox picks up container dimensions (handles slow layout / flex).
@@ -346,6 +459,7 @@ const PlotApp = () => {
     const applyPostStyleTweaks = () => {
       filterPOILayers();
       syncLandCoverOverlay(map.current, showLandCoverOverlayRef.current);
+      syncMiCanopyOverlay(map.current, showMiCanopyOverlayRef.current);
     };
 
     // Run on idle (after all rendering complete) for initial load
@@ -495,6 +609,90 @@ const PlotApp = () => {
     if (!map.current || !mapReady) return;
     syncLandCoverOverlay(map.current, showLandCoverOverlay);
   }, [showLandCoverOverlay, mapReady]);
+
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    syncMiCanopyOverlay(map.current, showMiCanopyOverlay);
+  }, [showMiCanopyOverlay, mapReady]);
+
+  // Hold map sweep for at least INTELLIGENCE_SWEEP_MIN_MS after each submit so it’s visible even on instant errors.
+  useEffect(() => {
+    if (intelligenceMapLoading) {
+      intelligenceSweepStartRef.current = Date.now();
+      setIntelligenceSweepVisible(true);
+      return undefined;
+    }
+    const started = intelligenceSweepStartRef.current;
+    if (!started) {
+      setIntelligenceSweepVisible(false);
+      return undefined;
+    }
+    const elapsed = Date.now() - started;
+    const wait = Math.max(0, INTELLIGENCE_SWEEP_MIN_MS - elapsed);
+    if (wait === 0) {
+      intelligenceSweepStartRef.current = 0;
+      setIntelligenceSweepVisible(false);
+      return undefined;
+    }
+    const t = setTimeout(() => {
+      intelligenceSweepStartRef.current = 0;
+      setIntelligenceSweepVisible(false);
+    }, wait);
+    return () => clearTimeout(t);
+  }, [intelligenceMapLoading]);
+
+  useEffect(() => {
+    if (!showIntelligenceLayer) {
+      intelligenceSweepStartRef.current = 0;
+      setIntelligenceSweepVisible(false);
+    }
+  }, [showIntelligenceLayer]);
+
+  // Map container size can change when Intelligence sweep class toggles; keep GL canvas in sync.
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const id = requestAnimationFrame(() => {
+      try {
+        map.current?.resize();
+      } catch (_) {}
+    });
+    return () => cancelAnimationFrame(id);
+  }, [mapReady, intelligenceSweepVisible]);
+
+  // Light sweep: mount inside Mapbox’s canvas container so it stacks above the WebGL canvas.
+  // Double rAF defers until after layout/paint so the canvas container exists and dimensions are stable.
+  useEffect(() => {
+    if (!map.current || !mapReady || !showIntelligenceLayer || !intelligenceSweepVisible) {
+      return undefined;
+    }
+    const mapInstance = map.current;
+    let cancelled = false;
+    let el = null;
+    let raf2Id = 0;
+
+    const raf1Id = requestAnimationFrame(() => {
+      raf2Id = requestAnimationFrame(() => {
+        if (cancelled || !map.current) return;
+        const canvasWrap = mapInstance.getContainer()?.querySelector('.mapboxgl-canvas-container');
+        if (!canvasWrap) return;
+        el = document.createElement('div');
+        el.className = 'plot-map-intel-sweep-overlay';
+        el.setAttribute('aria-hidden', 'true');
+        el.style.cssText =
+          'position:absolute;inset:0;pointer-events:none;z-index:20;overflow:hidden;';
+        canvasWrap.appendChild(el);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1Id);
+      if (raf2Id) cancelAnimationFrame(raf2Id);
+      try {
+        el?.remove();
+      } catch (_) {}
+    };
+   }, [mapReady, showIntelligenceLayer, intelligenceSweepVisible]);
 
   // Also resize on window resize
   useEffect(() => {
@@ -776,8 +974,13 @@ const PlotApp = () => {
         />
       </div>
 
-      <div className="flex-1 relative overflow-hidden w-full" style={{ minHeight: 200 }}>
-        <div ref={mapContainer} className="absolute inset-0 z-0" style={{ width: '100%', height: '100%' }} />
+      <div className="flex-1 relative min-h-0 overflow-hidden w-full" style={{ minHeight: 200 }}>
+        <div className="absolute inset-0 z-0 overflow-hidden">
+          <div
+            ref={mapContainer}
+            className="absolute inset-0 z-0 h-full w-full min-h-0 min-w-0"
+          />
+        </div>
 
         {/* Map controls: 3D + optional land-cover overlay (Phase 1: sample GeoJSON) */}
         {mapInitStarted && !mapError && (
@@ -809,6 +1012,21 @@ const PlotApp = () => {
                 {showLandCoverOverlay ? 'Land cover on' : 'Land cover off'}
               </button>
             )}
+            {SHOW_MI_CANOPY_TOGGLE && (
+              <button
+                type="button"
+                onClick={() => setShowMiCanopyOverlay(prev => !prev)}
+                className={`pointer-events-auto px-3 py-1.5 rounded-full text-xs font-medium border shadow-sm ${
+                  showMiCanopyOverlay
+                    ? 'bg-lime-800 text-white border-lime-900'
+                    : 'bg-white/95 text-gray-700 border-gray-200 hover:bg-gray-50 dark:bg-gray-900/95 dark:text-gray-200 dark:border-gray-600'
+                }`}
+                aria-pressed={showMiCanopyOverlay}
+                title="Michigan block-group tree canopy % (Tree Equity GeoJSON)"
+              >
+                {showMiCanopyOverlay ? 'MI canopy on' : 'MI canopy off'}
+              </button>
+            )}
           </div>
         )}
 
@@ -817,7 +1035,7 @@ const PlotApp = () => {
           <button
             type="button"
             onClick={() => setShowIntelligenceLayer(false)}
-            className={`absolute left-4 z-[90] pointer-events-auto flex items-center gap-2 px-4 py-2 rounded-full bg-white/95 dark:bg-gray-900/95 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg ${SHOW_LAND_COVER_TOGGLE ? 'top-[5.75rem]' : 'top-12'}`}
+            className={`absolute left-4 z-[90] pointer-events-auto flex items-center gap-2 px-4 py-2 rounded-full bg-white/95 dark:bg-gray-900/95 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg ${intelligenceBackButtonTopClass()}`}
           >
             <span className="-ml-1">&lt;</span>
             <span>Explore</span>
@@ -1024,6 +1242,7 @@ const PlotApp = () => {
           isDark={isDark}
           onClose={() => setShowIntelligenceLayer(false)}
           onCreateMovementFromAI={handleCreateMovementFromAI}
+          onIntelligenceLoadingChange={setIntelligenceMapLoading}
         />
       )}
 
