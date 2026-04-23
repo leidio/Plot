@@ -6,9 +6,11 @@ WORKDIR /app
 COPY backend/package.json backend/package-lock.json ./
 RUN npm ci
 
-# Copy backend source and prisma schema
-COPY backend/src ./src
 COPY backend/prisma ./prisma
+RUN npx prisma generate
+
+# Copy backend source
+COPY backend/src ./src
 
 ENV NODE_ENV=production
 EXPOSE 3001
