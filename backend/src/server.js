@@ -24,10 +24,25 @@ function buildAllowedOrigins() {
     ...new Set(
       raw
         .split(',')
-        .map((s) => s.trim().replace(/\/+$/, ''))
+        .map((s) => normalizeOrigin(s))
         .filter(Boolean)
     )
   ];
+}
+
+function normalizeOrigin(origin) {
+  return (origin || '').trim().replace(/\/+$/, '');
+}
+
+function isTrustedRailwayOrigin(origin) {
+  if (process.env.NODE_ENV !== 'production') return false;
+
+  try {
+    const parsed = new URL(origin);
+    return parsed.protocol === 'https:' && parsed.hostname.endsWith('.up.railway.app');
+  } catch {
+    return false;
+  }
 }
 
 const allowedOrigins = buildAllowedOrigins();
@@ -136,7 +151,9 @@ app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
+      const normalizedOrigin = normalizeOrigin(origin);
+      if (allowedOrigins.includes(normalizedOrigin)) return callback(null, true);
+      if (isTrustedRailwayOrigin(normalizedOrigin)) return callback(null, true);
       console.warn('CORS blocked Origin (add to FRONTEND_URL):', origin);
       return callback(null, false);
     },
